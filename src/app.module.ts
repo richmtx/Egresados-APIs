@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
+import { EgresadosModule } from './egresados/egresados.module';
+
 @Module({
   imports: [
     TypeOrmModule.forRoot({
@@ -15,6 +17,9 @@ import { AppService } from './app.service';
       autoLoadEntities: true,
       synchronize: true,
     }),
+
+    // Registro de módulos del proyecto
+    EgresadosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
