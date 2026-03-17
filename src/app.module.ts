@@ -5,6 +5,10 @@ import { AppService } from './app.service';
 
 import { EgresadosModule } from './egresados/egresados.module';
 import { CarrerasModule } from './carreras/carreras.module';
+import { AntiguedadModule } from './antiguedad-empleo/antiguedad.module';
+import { AutorizacionesModule } from './autorizaciones/autorizaciones.module';
+import { CertificacionesModule } from './certificaciones/certificaciones.module';
+import { CertificacionesVModule } from './certificaciones-vigentes/certificacionesV.module';
 
 @Module({
   imports: [
@@ -19,9 +23,13 @@ import { CarrerasModule } from './carreras/carreras.module';
       synchronize: false,
     }),
 
-    // Registro de módulos del proyecto
+    // Registro de módulos
     EgresadosModule,
     CarrerasModule,
+    AntiguedadModule,
+    AutorizacionesModule,
+    CertificacionesModule,
+    CertificacionesVModule,
 
   ],
   controllers: [AppController],

@@ -11,7 +11,6 @@ export class CarrerasService {
     private carrerasRepository: Repository<Carrera>,
   ) {}
 
-  // Obtener todas las carreras
   async findAll(): Promise<Carrera[]> {
     return this.carrerasRepository.find();
   }
