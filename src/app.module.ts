@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
 import { EgresadosModule } from './egresados/egresados.module';
+import { CarrerasModule } from './carreras/carreras.module';
 
 @Module({
   imports: [
@@ -20,6 +21,8 @@ import { EgresadosModule } from './egresados/egresados.module';
 
     // Registro de módulos del proyecto
     EgresadosModule,
+    CarrerasModule,
+
   ],
   controllers: [AppController],
   providers: [AppService],

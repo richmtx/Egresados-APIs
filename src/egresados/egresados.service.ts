@@ -15,4 +15,8 @@ export class EgresadosService {
     return this.egresadosRepository.find();
   }
 
+  async remove(id: number): Promise<void> {
+    await this.egresadosRepository.delete(id);
+  }
+
 }

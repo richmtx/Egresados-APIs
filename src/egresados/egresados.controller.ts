@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Delete, Param, ParseIntPipe } from '@nestjs/common';
 import { EgresadosService } from './egresados.service';
 import { Egresado } from './egresados.entity';
 
@@ -10,6 +10,11 @@ export class EgresadosController {
   @Get()
   findAll(): Promise<Egresado[]> {
     return this.egresadosService.findAll();
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.egresadosService.remove(id);
   }
 
 }
