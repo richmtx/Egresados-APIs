@@ -9,8 +9,8 @@ export class Egresado {
   @Column({ type: 'varchar', length: 150 })
   nombre_completo: string;
 
-  @Column({ type: 'varchar', length: 20 })
-  numero_control: string;
+  @Column()
+  genero_id: number;
 
   @Column({ type: 'varchar', length: 120 })
   correo: string;
@@ -18,29 +18,35 @@ export class Egresado {
   @Column({ type: 'varchar', length: 20 })
   telefono: string;
 
-  @Column({ type: 'year' })
-  anio_egreso: number;
+  @Column({ type: 'varchar', length: 120 })
+  ciudad_residencia: string;
 
   @Column()
   carrera_id: number;
 
-  @Column()
-  genero_id: number;
+  @Column({ type: 'year' })
+  anio_egreso: number;
 
   @Column()
   nivel_ingles_id: number;
 
-  @Column({ type: 'varchar', length: 120 })
-  ciudad_residencia: string;
+  @Column({ type: 'varchar', length: 150 })
+  empresa: string;
+
+  @Column()
+  antiguedad_empleo_id: number;
 
   @Column({ type: 'varchar', length: 120 })
   ciudad_trabajo: string;
 
-  @Column({ type: 'varchar', length: 120 })
-  situacion_laboral: string;
+  @Column({ type: 'timestamp' })
+  fecha_registro: Date;
 
-  @Column({ type: 'varchar', length: 150 })
-  empresa: string;
+  @Column({ type: 'varchar', length: 20 })
+  numero_control: string;
+
+  @Column({ type: 'varchar', length: 255 })
+  linkedin: string;
 
   @Column({ type: 'varchar', length: 150 })
   puesto_trabajo: string;
@@ -48,21 +54,16 @@ export class Egresado {
   @Column()
   coincidencia_laboral_id: number;
 
+  @Column({ type: 'varchar', length: 100 })
+  estatus_titulacion: string;
+
   @Column()
-  antiguedad_empleo_id: number;
+  situacion_laboral_id: number;
 
   @Column()
   satisfaccion_formacion: number;
 
-  @Column({ type: 'tinyint' })
-  certificacion_posgrado: number;
+  @Column()
+  certificacion_vigente_id: number;
 
-  @Column({ type: 'varchar', length: 100 })
-  estatus_titulacion: string;
-
-  @Column({ type: 'varchar', length: 255 })
-  linkedin: string;
-
-  @Column({ type: 'timestamp' })
-  fecha_registro: Date;
 }

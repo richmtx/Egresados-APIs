@@ -15,7 +15,7 @@ import { EgresadosModule } from './egresados/egresados.module';
       password: 'California29',
       database: 'egresados',
       autoLoadEntities: true,
-      synchronize: true,
+      synchronize: false,
     }),
 
     // Registro de módulos del proyecto
