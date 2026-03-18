@@ -13,6 +13,12 @@ import { CertificacionesVModule } from './certificaciones-vigentes/certificacion
 import { CoincidenciaModule } from './coincidencia-laboral/coincidencia.module';
 import { ColabOtroModule } from './colaboracion-otro/colabOtro.module';
 import { ColaboracionesModule } from './colaboraciones/colaboraciones.module';
+import { EgresadoColabModule } from './egresado-colaboraciones/egresadoColab.module';
+import { EgresadoHabModule } from './egresado-habilidades/egresadoHab.module';
+import { GenerosModule } from './generos/generos.module';
+import { HabilidadesModule } from './habilidades/habilidades.module';
+import { HabOtroModule } from './habilidades-otro/habOtro.module';
+import { NivelesModule } from './niveles-ingles/niveles.module';
 
 @Module({
   imports: [
@@ -37,6 +43,12 @@ import { ColaboracionesModule } from './colaboraciones/colaboraciones.module';
     CoincidenciaModule,
     ColabOtroModule,
     ColaboracionesModule,
+    EgresadoColabModule,
+    EgresadoHabModule,
+    GenerosModule,
+    HabilidadesModule,
+    HabOtroModule,
+    NivelesModule,
 
   ],
   controllers: [AppController],
