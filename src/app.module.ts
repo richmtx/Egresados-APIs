@@ -19,6 +19,9 @@ import { GenerosModule } from './generos/generos.module';
 import { HabilidadesModule } from './habilidades/habilidades.module';
 import { HabOtroModule } from './habilidades-otro/habOtro.module';
 import { NivelesModule } from './niveles-ingles/niveles.module';
+import { FormacionModule } from './satisfaccion-formacion/formacion.module';
+import { SituacionModule } from './situacion-laboral/situacion.module';
+import { TitulacionModule } from './titulacion/titulacion.module';
 
 @Module({
   imports: [
@@ -49,6 +52,9 @@ import { NivelesModule } from './niveles-ingles/niveles.module';
     HabilidadesModule,
     HabOtroModule,
     NivelesModule,
+    FormacionModule,
+    SituacionModule,
+    TitulacionModule,
 
   ],
   controllers: [AppController],
