@@ -3,12 +3,16 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
+// Importación del módulo de cada una de las APIs
 import { EgresadosModule } from './egresados/egresados.module';
 import { CarrerasModule } from './carreras/carreras.module';
 import { AntiguedadModule } from './antiguedad-empleo/antiguedad.module';
 import { AutorizacionesModule } from './autorizaciones/autorizaciones.module';
 import { CertificacionesModule } from './certificaciones/certificaciones.module';
 import { CertificacionesVModule } from './certificaciones-vigentes/certificacionesV.module';
+import { CoincidenciaModule } from './coincidencia-laboral/coincidencia.module';
+import { ColabOtroModule } from './colaboracion-otro/colabOtro.module';
+import { ColaboracionesModule } from './colaboraciones/colaboraciones.module';
 
 @Module({
   imports: [
@@ -30,6 +34,9 @@ import { CertificacionesVModule } from './certificaciones-vigentes/certificacion
     AutorizacionesModule,
     CertificacionesModule,
     CertificacionesVModule,
+    CoincidenciaModule,
+    ColabOtroModule,
+    ColaboracionesModule,
 
   ],
   controllers: [AppController],
