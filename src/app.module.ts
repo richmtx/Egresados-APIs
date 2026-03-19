@@ -22,6 +22,7 @@ import { NivelesModule } from './niveles-ingles/niveles.module';
 import { FormacionModule } from './satisfaccion-formacion/formacion.module';
 import { SituacionModule } from './situacion-laboral/situacion.module';
 import { TitulacionModule } from './titulacion/titulacion.module';
+import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { TitulacionModule } from './titulacion/titulacion.module';
     FormacionModule,
     SituacionModule,
     TitulacionModule,
+    UsuariosModule,
 
   ],
   controllers: [AppController],
