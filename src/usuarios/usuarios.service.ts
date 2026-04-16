@@ -19,6 +19,14 @@ export class UsuariosService {
     return this.usuariosRepository.findOneBy({ id_usuario: id });
   }
 
+  async login(usuario: string, contrasena: string): Promise<Omit<Usuario, 'contrasena'> | null> {
+    const user = await this.usuariosRepository.findOneBy({ usuario, contrasena });
+    if (!user) return null;
+
+    const { contrasena: _, ...resultado } = user;
+    return resultado;
+  }
+
   async create(data: Partial<Usuario>): Promise<Usuario> {
     const nuevoUsuario = this.usuariosRepository.create(data);
     return this.usuariosRepository.save(nuevoUsuario);

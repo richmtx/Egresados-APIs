@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, UnauthorizedException } from '@nestjs/common';
 import { UsuariosService } from './usuarios.service';
 import { Usuario } from './usuarios.entity';
 
@@ -15,6 +15,20 @@ export class UsuariosController {
   @Get(':id')
   async getUsuario(@Param('id') id: number): Promise<Usuario | null> {
     return this.usuariosService.findOne(id);
+  }
+
+  @Post('login')
+  async login(@Body() body: { usuario: string; contrasena: string }) {
+    const user = await this.usuariosService.login(body.usuario, body.contrasena);
+
+    if (!user) {
+      throw new UnauthorizedException('Usuario o contraseña incorrectos');
+    }
+
+    return {
+      mensaje: 'Login exitoso',
+      usuario: user,
+    };
   }
 
   @Post()
