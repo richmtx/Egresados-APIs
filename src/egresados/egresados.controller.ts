@@ -5,11 +5,16 @@ import { Egresado } from './egresados.entity';
 @Controller('egresados')
 export class EgresadosController {
 
-  constructor(private readonly egresadosService: EgresadosService) {}
+  constructor(private readonly egresadosService: EgresadosService) { }
 
   @Get()
   findAll(): Promise<Egresado[]> {
     return this.egresadosService.findAll();
+  }
+
+  @Get('detalle')
+  findAllConDetalles(): Promise<any[]> {
+    return this.egresadosService.findAllConDetalles();
   }
 
   @Delete(':id')

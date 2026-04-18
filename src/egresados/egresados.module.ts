@@ -8,5 +8,6 @@ import { EgresadosController } from './egresados.controller';
   imports: [TypeOrmModule.forFeature([Egresado])],
   controllers: [EgresadosController],
   providers: [EgresadosService],
+  exports: [EgresadosService],
 })
 export class EgresadosModule {}
