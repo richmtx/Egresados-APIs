@@ -6,7 +6,7 @@ import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
 @Controller('egresados')
 export class EgresadosController {
 
-  constructor(private readonly egresadosService: EgresadosService) {}
+  constructor(private readonly egresadosService: EgresadosService) { }
 
   @Post('etapa1')
   crearEtapa1(@Body() dto: CreateEgresadoEtapa1Dto) {
@@ -34,6 +34,11 @@ export class EgresadosController {
   @Get('detalles')
   findAllConDetalles() {
     return this.egresadosService.findAllConDetalles();
+  }
+
+  @Get(':id/perfil')
+  getPerfil(@Param('id', ParseIntPipe) id: number) {
+    return this.egresadosService.getPerfil(id);
   }
 
   @Delete(':id')

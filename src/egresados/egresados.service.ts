@@ -222,7 +222,94 @@ export class EgresadosService {
     `);
   }
 
-  async remove(id: number): Promise<void> {
+  async remove(id: number): Promise<{ mensaje: string }> {
+
+    // Verificar que el egresado existe
+    const existe = await this.egresadosRepo.findOne({ where: { id_egresado: id } });
+    if (!existe) {
+      throw new NotFoundException(`No se encontró el egresado con id ${id}.`);
+    }
+
+    // Eliminar registros hijos en orden (de las tablas que tienen FK a egresados)
+    await this.dataSource.query(`DELETE FROM autorizaciones          WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM certificaciones         WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM egresado_habilidades    WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM habilidades_otro        WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM egresado_colaboraciones WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM colaboracion_otro       WHERE id_egresado = ?`, [id]);
+
+    // Ahora sí eliminar el egresado principal
     await this.egresadosRepo.delete(id);
+
+    return { mensaje: 'Egresado eliminado correctamente.' };
+  }
+
+  async getPerfil(id: number): Promise<any> {
+    // Datos principales del egresado
+    const rows = await this.dataSource.query(`
+    SELECT
+      e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+      e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
+      e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
+      e.estatus_titulacion, e.satisfaccion_formacion,
+      g.genero, c.nombre_carrera,
+      ni.nivel        AS nivel_ingles,
+      ae.rango        AS antiguedad_empleo,
+      cl.nivel        AS coincidencia_laboral,
+      sl.situacion    AS situacion_laboral,
+      cv.respuesta    AS certificacion_vigente,
+      aut.autorizo_estadisticas,
+      aut.autorizo_contacto,
+      aut.autorizo_eventos
+    FROM egresados e
+    LEFT JOIN generos                  g   ON e.genero_id                = g.id_genero
+    LEFT JOIN carreras                 c   ON e.carrera_id               = c.id_carrera
+    LEFT JOIN niveles_ingles           ni  ON e.nivel_ingles_id          = ni.id_nivel
+    LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id     = ae.id_antiguedad
+    LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id  = cl.id_coincidencia
+    LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id     = sl.id_situacion
+    LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id = cv.id_certificacion_vigente
+    LEFT JOIN autorizaciones           aut ON e.id_egresado              = aut.id_egresado
+    WHERE e.id_egresado = ?
+  `, [id]);
+
+    if (!rows.length) throw new NotFoundException(`Egresado ${id} no encontrado.`);
+    const egresado = rows[0];
+
+    // Certificaciones específicas
+    const certificaciones = await this.dataSource.query(
+      `SELECT nombre_certificacion FROM certificaciones WHERE id_egresado = ?`, [id]
+    );
+
+    // Habilidades (tabla pivote + otro)
+    const habilidades = await this.dataSource.query(`
+    SELECT h.habilidad FROM egresado_habilidades eh
+    JOIN habilidades h ON eh.id_habilidad = h.id_habilidad
+    WHERE eh.id_egresado = ?
+  `, [id]);
+
+    const habilidadesOtro = await this.dataSource.query(
+      `SELECT descripcion FROM habilidades_otro WHERE id_egresado = ?`, [id]
+    );
+
+    // Colaboraciones (tabla pivote + otro)
+    const colaboraciones = await this.dataSource.query(`
+    SELECT c.descripcion FROM egresado_colaboraciones ec
+    JOIN colaboraciones c ON ec.id_colaboracion = c.id_colaboracion
+    WHERE ec.id_egresado = ?
+  `, [id]);
+
+    const colaboracionesOtro = await this.dataSource.query(
+      `SELECT descripcion FROM colaboracion_otro WHERE id_egresado = ?`, [id]
+    );
+
+    return {
+      ...egresado,
+      certificaciones: certificaciones.map((r: any) => r.nombre_certificacion),
+      habilidades: habilidades.map((r: any) => r.habilidad),
+      habilidades_otro: habilidadesOtro.map((r: any) => r.descripcion),
+      colaboraciones: colaboraciones.map((r: any) => r.descripcion),
+      colaboraciones_otro: colaboracionesOtro.map((r: any) => r.descripcion),
+    };
   }
 }
