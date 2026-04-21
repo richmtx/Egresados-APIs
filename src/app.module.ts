@@ -23,6 +23,7 @@ import { FormacionModule } from './satisfaccion-formacion/formacion.module';
 import { SituacionModule } from './situacion-laboral/situacion.module';
 import { TitulacionModule } from './titulacion/titulacion.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { NotificacionesModule } from './notificaciones/notificaciones.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     SituacionModule,
     TitulacionModule,
     UsuariosModule,
+    NotificacionesModule,
 
   ],
   controllers: [AppController],
