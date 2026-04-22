@@ -41,6 +41,17 @@ export class EgresadosController {
     return this.egresadosService.getPerfil(id);
   }
 
+  @Get('estadisticas')
+  getEstadisticas(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getEstadisticas(
+      carrera,
+      anio ? parseInt(anio) : undefined,
+    );
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.egresadosService.remove(id);
