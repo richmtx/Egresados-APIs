@@ -438,12 +438,22 @@ export class EgresadosService {
   // ESTADÍSTICAS 
   async getEstadisticas(carrera?: string, anio?: number): Promise<any> {
 
-    // Condición dinámica de filtros
-    const whereCarrera = carrera ? `AND c.nombre_carrera = '${carrera}'` : '';
-    const whereAnio = anio ? `AND e.anio_egreso = ${anio}` : '';
-    const where = `WHERE 1=1 ${whereCarrera} ${whereAnio}`;
+    // ✅ Parámetros separados, nunca interpolados en el string
+    const params: any[] = [];
+    const conditions: string[] = ['1=1'];
 
-    //  1. KPIs generales 
+    if (carrera) {
+      conditions.push(`c.nombre_carrera = ?`);
+      params.push(carrera);
+    }
+    if (anio) {
+      conditions.push(`e.anio_egreso = ?`);
+      params.push(anio);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    // ── 1. KPIs ──────────────────────────────────────────────────────────
     const [kpis] = await this.dataSource.query(`
     SELECT
       COUNT(*)                                              AS total_egresados,
@@ -456,181 +466,151 @@ export class EgresadosService {
       SUM(sl.situacion != 'Desempleado')                    AS empleados,
       SUM(sl.situacion  = 'Desempleado')                    AS desempleados
     FROM egresados e
-    LEFT JOIN autorizaciones   aut ON e.id_egresado       = aut.id_egresado
-    LEFT JOIN situacion_laboral sl  ON e.situacion_laboral_id = sl.id_situacion
-    LEFT JOIN carreras          c   ON e.carrera_id           = c.id_carrera
+    LEFT JOIN autorizaciones    aut ON e.id_egresado           = aut.id_egresado
+    LEFT JOIN situacion_laboral sl  ON e.situacion_laboral_id  = sl.id_situacion
+    LEFT JOIN carreras          c   ON e.carrera_id            = c.id_carrera
     ${where}
-  `);
+  `, params);
 
-    // 2. Situación laboral
+    // ── 2. Situación laboral ──────────────────────────────────────────────
     const situacionLaboral = await this.dataSource.query(`
     SELECT sl.situacion, COUNT(*) AS total
     FROM egresados e
     LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
-    GROUP BY sl.situacion
-    ORDER BY total DESC
-  `);
+    GROUP BY sl.situacion ORDER BY total DESC
+  `, params);
 
-    // 3. Empleabilidad por carrera
+    // ── 3. Empleabilidad por carrera ──────────────────────────────────────
     const empleabilidadCarrera = await this.dataSource.query(`
-    SELECT
-      c.nombre_carrera,
-      COUNT(*)                                           AS total,
-      SUM(sl.situacion != 'Desempleado')                 AS empleados
+    SELECT c.nombre_carrera, COUNT(*) AS total,
+           SUM(sl.situacion != 'Desempleado') AS empleados
     FROM egresados e
     LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
     LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
     ${where}
-    GROUP BY c.nombre_carrera
-    ORDER BY empleados DESC
-  `);
+    GROUP BY c.nombre_carrera ORDER BY empleados DESC
+  `, params);
 
-    // 4. Titulación por año
+    // ── 4. Titulación por año ─────────────────────────────────────────────
     const titulacionAnio = await this.dataSource.query(`
-    SELECT
-      e.anio_egreso,
-      COUNT(*)                                         AS total,
-      SUM(e.estatus_titulacion = 'Titulado')           AS titulados,
-      SUM(e.estatus_titulacion = 'En trámite')         AS en_tramite,
-      ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1) AS pct_titulados
+    SELECT e.anio_egreso, COUNT(*) AS total,
+           SUM(e.estatus_titulacion = 'Titulado')  AS titulados,
+           SUM(e.estatus_titulacion = 'En trámite') AS en_tramite,
+           ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1) AS pct_titulados
     FROM egresados e
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
-    GROUP BY e.anio_egreso
-    ORDER BY e.anio_egreso ASC
-  `);
+    GROUP BY e.anio_egreso ORDER BY e.anio_egreso ASC
+  `, params);
 
-    // 5. Nivel de inglés general
+    // ── 5. Niveles de inglés ──────────────────────────────────────────────
     const nivelesIngles = await this.dataSource.query(`
     SELECT ni.nivel, COUNT(*) AS total
     FROM egresados e
     LEFT JOIN niveles_ingles ni ON e.nivel_ingles_id = ni.id_nivel
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
-    GROUP BY ni.nivel
-    ORDER BY total DESC
-  `);
+    GROUP BY ni.nivel ORDER BY total DESC
+  `, params);
 
-    // 6. Inglés por carrera
+    // ── 6. Inglés por carrera ─────────────────────────────────────────────
     const inglesCarrera = await this.dataSource.query(`
     SELECT c.nombre_carrera, ni.nivel, COUNT(*) AS total
     FROM egresados e
     LEFT JOIN niveles_ingles ni ON e.nivel_ingles_id = ni.id_nivel
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
-    GROUP BY c.nombre_carrera, ni.nivel
-    ORDER BY c.nombre_carrera, total DESC
-  `);
+    GROUP BY c.nombre_carrera, ni.nivel ORDER BY c.nombre_carrera, total DESC
+  `, params);
 
-    //  7. Satisfacción por área (radar)
-    // satisfaccion_formacion es el campo disponible; 
-    // desglosamos por carrera para el radar
+    // ── 7. Satisfacción por carrera ───────────────────────────────────────
     const satisfaccionCarrera = await this.dataSource.query(`
-    SELECT c.nombre_carrera,
-           ROUND(AVG(e.satisfaccion_formacion), 2) AS promedio
+    SELECT c.nombre_carrera, ROUND(AVG(e.satisfaccion_formacion), 2) AS promedio
     FROM egresados e
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
-    GROUP BY c.nombre_carrera
-    ORDER BY promedio DESC
-  `);
+    GROUP BY c.nombre_carrera ORDER BY promedio DESC
+  `, params);
 
-    // 8. Top empresas
+    // ── 8. Top empresas ───────────────────────────────────────────────────
     const topEmpresas = await this.dataSource.query(`
     SELECT e.empresa, COUNT(*) AS total
     FROM egresados e
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
     AND e.empresa IS NOT NULL AND e.empresa != ''
-    GROUP BY e.empresa
-    ORDER BY total DESC
-    LIMIT 10
-  `);
+    GROUP BY e.empresa ORDER BY total DESC LIMIT 10
+  `, params);
 
-    // 9. Evolución por generación
+    // ── 9. Evolución por generación ───────────────────────────────────────
     const evolucionGeneracion = await this.dataSource.query(`
-    SELECT
-      e.anio_egreso,
-      COUNT(*)                                                            AS total,
-      ROUND(SUM(sl.situacion != 'Desempleado') * 100.0 / COUNT(*), 1)   AS pct_empleados,
-      ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1) AS pct_titulados,
-      ROUND(AVG(e.satisfaccion_formacion) * 20, 1)                       AS satisfaccion_pct
+    SELECT e.anio_egreso, COUNT(*) AS total,
+           ROUND(SUM(sl.situacion != 'Desempleado') * 100.0 / COUNT(*), 1) AS pct_empleados,
+           ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1) AS pct_titulados,
+           ROUND(AVG(e.satisfaccion_formacion) * 20, 1) AS satisfaccion_pct
     FROM egresados e
     LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
-    GROUP BY e.anio_egreso
-    ORDER BY e.anio_egreso ASC
-  `);
+    GROUP BY e.anio_egreso ORDER BY e.anio_egreso ASC
+  `, params);
 
-    // 10. Sector laboral
+    // ── 10. Sector laboral ────────────────────────────────────────────────
     const sectorLaboral = await this.dataSource.query(`
     SELECT sl.situacion AS sector, COUNT(*) AS total
     FROM egresados e
     LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
     LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
     ${where}
-    GROUP BY sl.situacion
-    ORDER BY total DESC
-  `);
+    GROUP BY sl.situacion ORDER BY total DESC
+  `, params);
 
-    // 11. Participación por carrera
+    // ── 11. Participación por carrera ─────────────────────────────────────
     const participacionCarrera = await this.dataSource.query(`
-    SELECT
-      c.nombre_carrera,
-      SUM(aut.autorizo_contacto)  AS autorizo_contacto,
-      SUM(aut.autorizo_eventos)   AS autorizo_eventos,
-      COUNT(*)                    AS total
+    SELECT c.nombre_carrera,
+           SUM(aut.autorizo_contacto) AS autorizo_contacto,
+           SUM(aut.autorizo_eventos)  AS autorizo_eventos,
+           COUNT(*) AS total
     FROM egresados e
-    LEFT JOIN autorizaciones aut ON e.id_egresado  = aut.id_egresado
-    LEFT JOIN carreras c         ON e.carrera_id   = c.id_carrera
+    LEFT JOIN autorizaciones aut ON e.id_egresado = aut.id_egresado
+    LEFT JOIN carreras c         ON e.carrera_id  = c.id_carrera
     ${where}
-    GROUP BY c.nombre_carrera
-    ORDER BY total DESC
-  `);
+    GROUP BY c.nombre_carrera ORDER BY total DESC
+  `, params);
 
-    // 12. Fuera de México (ciudad_trabajo)
-    // Ciudades conocidas de México para filtrar — ajusta según tus datos
-    const mexicoCiudades = [
-      'Durango', 'CDMX', 'Ciudad de México', 'Guadalajara', 'Monterrey',
-      'Puebla', 'Querétaro', 'Tijuana', 'León', 'Mérida', 'Hermosillo',
-      'Chihuahua', 'Saltillo', 'Culiacán', 'Aguascalientes', 'Morelia',
-      'Mexicali', 'Toluca', 'Ciudad Juárez', 'Veracruz'
-    ];
-    const placeholders = mexicoCiudades.map(() => '?').join(',');
+    // ── 12 & 13. Ubicación geográfica ─────────────────────────────────────
+    // El formato guardado es "Ciudad, Estado, País" gracias a Nominatim
+    // Detectamos México extrayendo la última parte del string
 
+    // ── 12. Fuera de México ───────────────────────────────────────────────────
     const fueraMexico = await this.dataSource.query(`
-    SELECT
-      e.ciudad_trabajo,
-      c.nombre_carrera,
-      COUNT(*) AS total
-    FROM egresados e
-    LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-    WHERE e.ciudad_trabajo IS NOT NULL
-      AND e.ciudad_trabajo != ''
-      AND e.ciudad_trabajo NOT IN (${placeholders})
-    GROUP BY e.ciudad_trabajo, c.nombre_carrera
-    ORDER BY total DESC
-  `, mexicoCiudades);
+  SELECT e.ciudad_trabajo, c.nombre_carrera, COUNT(*) AS total
+  FROM egresados e
+  LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+  ${where}
+  AND e.ciudad_trabajo IS NOT NULL
+  AND e.ciudad_trabajo != ''
+  AND e.ciudad_trabajo NOT LIKE '%México%'
+  AND e.ciudad_trabajo NOT LIKE '%Mexico%'
+  GROUP BY e.ciudad_trabajo, c.nombre_carrera
+  ORDER BY total DESC
+`, params);
 
-    // 13. Fuera de Durango pero en México
+    // ── 13. Fuera de Durango (en México, sin Durango) ─────────────────────────
     const fueraDurango = await this.dataSource.query(`
-    SELECT
-      e.ciudad_trabajo,
-      c.nombre_carrera,
-      COUNT(*) AS total
-    FROM egresados e
-    LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-    WHERE e.ciudad_trabajo IS NOT NULL
-      AND e.ciudad_trabajo != ''
-      AND LOWER(e.ciudad_trabajo) != 'durango'
-      AND e.ciudad_trabajo IN (${placeholders})
-    GROUP BY e.ciudad_trabajo, c.nombre_carrera
-    ORDER BY total DESC
-  `, mexicoCiudades);
-
+  SELECT e.ciudad_trabajo, c.nombre_carrera, COUNT(*) AS total
+  FROM egresados e
+  LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+  ${where}
+  AND e.ciudad_trabajo IS NOT NULL
+  AND e.ciudad_trabajo != ''
+  AND (e.ciudad_trabajo LIKE '%México%' OR e.ciudad_trabajo LIKE '%Mexico%')
+  AND e.ciudad_trabajo NOT LIKE 'Durango%'
+  GROUP BY e.ciudad_trabajo, c.nombre_carrera
+  ORDER BY total DESC
+`, params);
     return {
       kpis,
       situacionLaboral,
@@ -646,5 +626,5 @@ export class EgresadosService {
       fueraMexico,
       fueraDurango,
     };
-  }
-}
+  } // ← cierre de getEstadisticas
+} // ← cierre de EgresadosService 
