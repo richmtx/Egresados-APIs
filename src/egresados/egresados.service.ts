@@ -438,7 +438,7 @@ export class EgresadosService {
   // ESTADÍSTICAS 
   async getEstadisticas(carrera?: string, anio?: number): Promise<any> {
 
-    // ✅ Parámetros separados, nunca interpolados en el string
+    // Parámetros separados, nunca interpolados en el string
     const params: any[] = [];
     const conditions: string[] = ['1=1'];
 
@@ -453,7 +453,7 @@ export class EgresadosService {
 
     const where = `WHERE ${conditions.join(' AND ')}`;
 
-    // ── 1. KPIs ──────────────────────────────────────────────────────────
+    // 1. KPIs
     const [kpis] = await this.dataSource.query(`
     SELECT
       COUNT(*)                                              AS total_egresados,
@@ -472,7 +472,7 @@ export class EgresadosService {
     ${where}
   `, params);
 
-    // ── 2. Situación laboral ──────────────────────────────────────────────
+    // 2. Situación laboral
     const situacionLaboral = await this.dataSource.query(`
     SELECT sl.situacion, COUNT(*) AS total
     FROM egresados e
@@ -482,7 +482,7 @@ export class EgresadosService {
     GROUP BY sl.situacion ORDER BY total DESC
   `, params);
 
-    // ── 3. Empleabilidad por carrera ──────────────────────────────────────
+    // 3. Empleabilidad por carrera
     const empleabilidadCarrera = await this.dataSource.query(`
     SELECT c.nombre_carrera, COUNT(*) AS total,
            SUM(sl.situacion != 'Desempleado') AS empleados
@@ -493,7 +493,7 @@ export class EgresadosService {
     GROUP BY c.nombre_carrera ORDER BY empleados DESC
   `, params);
 
-    // ── 4. Titulación por año ─────────────────────────────────────────────
+    // 4. Titulación por año
     const titulacionAnio = await this.dataSource.query(`
     SELECT e.anio_egreso, COUNT(*) AS total,
            SUM(e.estatus_titulacion = 'Titulado')  AS titulados,
@@ -505,7 +505,7 @@ export class EgresadosService {
     GROUP BY e.anio_egreso ORDER BY e.anio_egreso ASC
   `, params);
 
-    // ── 5. Niveles de inglés ──────────────────────────────────────────────
+    // 5. Niveles de inglés
     const nivelesIngles = await this.dataSource.query(`
     SELECT ni.nivel, COUNT(*) AS total
     FROM egresados e
@@ -515,7 +515,7 @@ export class EgresadosService {
     GROUP BY ni.nivel ORDER BY total DESC
   `, params);
 
-    // ── 6. Inglés por carrera ─────────────────────────────────────────────
+    // 6. Inglés por carrera
     const inglesCarrera = await this.dataSource.query(`
     SELECT c.nombre_carrera, ni.nivel, COUNT(*) AS total
     FROM egresados e
@@ -525,7 +525,7 @@ export class EgresadosService {
     GROUP BY c.nombre_carrera, ni.nivel ORDER BY c.nombre_carrera, total DESC
   `, params);
 
-    // ── 7. Satisfacción por carrera ───────────────────────────────────────
+    // 7. Satisfacción por carrera
     const satisfaccionCarrera = await this.dataSource.query(`
     SELECT c.nombre_carrera, ROUND(AVG(e.satisfaccion_formacion), 2) AS promedio
     FROM egresados e
@@ -534,7 +534,7 @@ export class EgresadosService {
     GROUP BY c.nombre_carrera ORDER BY promedio DESC
   `, params);
 
-    // ── 8. Top empresas ───────────────────────────────────────────────────
+    // 8. Top empresas
     const topEmpresas = await this.dataSource.query(`
     SELECT e.empresa, COUNT(*) AS total
     FROM egresados e
@@ -544,7 +544,7 @@ export class EgresadosService {
     GROUP BY e.empresa ORDER BY total DESC LIMIT 10
   `, params);
 
-    // ── 9. Evolución por generación ───────────────────────────────────────
+    // 9. Evolución por generación
     const evolucionGeneracion = await this.dataSource.query(`
     SELECT e.anio_egreso, COUNT(*) AS total,
            ROUND(SUM(sl.situacion != 'Desempleado') * 100.0 / COUNT(*), 1) AS pct_empleados,
@@ -557,7 +557,7 @@ export class EgresadosService {
     GROUP BY e.anio_egreso ORDER BY e.anio_egreso ASC
   `, params);
 
-    // ── 10. Sector laboral ────────────────────────────────────────────────
+    // 10. Sector laboral
     const sectorLaboral = await this.dataSource.query(`
     SELECT sl.situacion AS sector, COUNT(*) AS total
     FROM egresados e
@@ -567,7 +567,7 @@ export class EgresadosService {
     GROUP BY sl.situacion ORDER BY total DESC
   `, params);
 
-    // ── 11. Participación por carrera ─────────────────────────────────────
+    // 11. Participación por carrera
     const participacionCarrera = await this.dataSource.query(`
     SELECT c.nombre_carrera,
            SUM(aut.autorizo_contacto) AS autorizo_contacto,
@@ -580,11 +580,7 @@ export class EgresadosService {
     GROUP BY c.nombre_carrera ORDER BY total DESC
   `, params);
 
-    // ── 12 & 13. Ubicación geográfica ─────────────────────────────────────
-    // El formato guardado es "Ciudad, Estado, País" gracias a Nominatim
-    // Detectamos México extrayendo la última parte del string
-
-    // ── 12. Fuera de México ───────────────────────────────────────────────────
+    // 12. Fuera de México 
     const fueraMexico = await this.dataSource.query(`
   SELECT e.ciudad_trabajo, c.nombre_carrera, COUNT(*) AS total
   FROM egresados e
@@ -598,7 +594,7 @@ export class EgresadosService {
   ORDER BY total DESC
 `, params);
 
-    // ── 13. Fuera de Durango (en México, sin Durango) ─────────────────────────
+    // 13. Fuera de Durango (en México, sin Durango)
     const fueraDurango = await this.dataSource.query(`
   SELECT e.ciudad_trabajo, c.nombre_carrera, COUNT(*) AS total
   FROM egresados e
@@ -610,6 +606,69 @@ export class EgresadosService {
   AND e.ciudad_trabajo NOT LIKE 'Durango%'
   GROUP BY e.ciudad_trabajo, c.nombre_carrera
   ORDER BY total DESC
+`, params);
+
+    // 14. Coincidencia laboral por carrera
+    const coincidenciaCarrera = await this.dataSource.query(`
+  SELECT
+    c.nombre_carrera,
+    cl.nivel AS coincidencia,
+    COUNT(*) AS total,
+    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY c.nombre_carrera), 1) AS porcentaje
+  FROM egresados e
+  LEFT JOIN carreras            c  ON e.carrera_id            = c.id_carrera
+  LEFT JOIN coincidencia_laboral cl ON e.coincidencia_laboral_id = cl.id_coincidencia
+  ${where}
+  GROUP BY c.nombre_carrera, cl.nivel
+  ORDER BY c.nombre_carrera, total DESC
+`, params);
+
+    // 15. Tiempo estimado para emplearse por carrera
+    const tiempoEmpleoCarrera = await this.dataSource.query(`
+  SELECT
+    c.nombre_carrera,
+    COUNT(*) AS total_egresados,
+    ROUND(AVG(
+      GREATEST(
+        YEAR(NOW()) - CASE ae.rango
+          WHEN 'Menos de 1 año'  THEN 0.5
+          WHEN 'De 1 a 3 años'   THEN 2
+          WHEN 'Más de 3 años'   THEN 4
+          ELSE 0
+        END - e.anio_egreso,
+        0
+      )
+    ), 1) AS anios_promedio_para_emplearse
+  FROM egresados e
+  LEFT JOIN carreras         c  ON e.carrera_id          = c.id_carrera
+  LEFT JOIN antiguedad_empleo ae ON e.antiguedad_empleo_id = ae.id_antiguedad
+  LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+  ${where}
+  AND sl.situacion != 'Desempleado'
+  GROUP BY c.nombre_carrera
+  ORDER BY anios_promedio_para_emplearse ASC
+`, params);
+
+    // 16. Tiempo estimado global para emplearse (KPI)
+    const [tiempoEmpleoGeneral] = await this.dataSource.query(`
+  SELECT
+    ROUND(AVG(
+      GREATEST(
+        YEAR(NOW()) - CASE ae.rango
+          WHEN 'Menos de 1 año'  THEN 0.5
+          WHEN 'De 1 a 3 años'   THEN 2
+          WHEN 'Más de 3 años'   THEN 4
+          ELSE 0
+        END - e.anio_egreso,
+        0
+      )
+    ), 1) AS anios_promedio_general
+  FROM egresados e
+  LEFT JOIN antiguedad_empleo ae ON e.antiguedad_empleo_id = ae.id_antiguedad
+  LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+  LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
+  ${where}
+  AND sl.situacion != 'Desempleado'
 `, params);
     return {
       kpis,
@@ -625,6 +684,10 @@ export class EgresadosService {
       participacionCarrera,
       fueraMexico,
       fueraDurango,
+      // ── nuevos ──
+      coincidenciaCarrera,
+      tiempoEmpleoCarrera,
+      tiempoEmpleoGeneral,
     };
-  } // ← cierre de getEstadisticas
-} // ← cierre de EgresadosService 
+  }
+} 
