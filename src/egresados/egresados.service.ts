@@ -660,47 +660,58 @@ export class EgresadosService {
 
     // ── TITULACIÓN ────────────────────────────────────────────────────────
 
-    // 17. Titulación por carrera (excluye Maestría id=15 y Posgrado id=16)
-    //     Retorna titulados / en_tramite / no_titulados y sus porcentajes
-    //     agrupados por nombre de carrera, ordenados por % titulados desc.
+    // 17. Titulación por carrera — respeta filtros de carrera y año
+    //     Excluye Maestría (id=15) y Posgrado (id=16).
+    //     El ${where} ya incluye "WHERE 1=1 [AND c.nombre_carrera=?] [AND e.anio_egreso=?]"
+    //     solo hay que añadir el AND extra para excluir posgrados.
     const titulacionCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
-        COUNT(*)                                                          AS total,
-        SUM(e.estatus_titulacion = 'Titulado')                           AS titulados,
-        SUM(e.estatus_titulacion = 'En trámite')                         AS en_tramite,
-        SUM(e.estatus_titulacion = 'No titulado')                        AS no_titulados,
-        ROUND(SUM(e.estatus_titulacion = 'Titulado')   * 100.0 / COUNT(*), 1) AS pct_titulados,
-        ROUND(SUM(e.estatus_titulacion = 'En trámite') * 100.0 / COUNT(*), 1) AS pct_en_tramite,
+        COUNT(*)                                                               AS total,
+        SUM(e.estatus_titulacion = 'Titulado')                                AS titulados,
+        SUM(e.estatus_titulacion = 'En trámite')                              AS en_tramite,
+        SUM(e.estatus_titulacion = 'No titulado')                             AS no_titulados,
+        ROUND(SUM(e.estatus_titulacion = 'Titulado')    * 100.0 / COUNT(*), 1) AS pct_titulados,
+        ROUND(SUM(e.estatus_titulacion = 'En trámite')  * 100.0 / COUNT(*), 1) AS pct_en_tramite,
         ROUND(SUM(e.estatus_titulacion = 'No titulado') * 100.0 / COUNT(*), 1) AS pct_no_titulados
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-      WHERE e.carrera_id NOT IN (15, 16)
+      ${where}
+      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera
       ORDER BY pct_titulados DESC
-    `);
+    `, params);
 
-    // 18. Egresados con posgrado (Maestría id=15, Posgrado id=16)
-    //     Retorna el conteo por tipo de posgrado y el total global.
+    // 18. Egresados con posgrado — respeta filtro de año si aplica.
+    //     El filtro de carrera NO aplica aquí porque si se filtra por "Arquitectura"
+    //     los posgrados (id 15,16) nunca coincidirían; en ese caso devuelve 0.
+    //     Se construye un where propio solo con el filtro de año.
+    const posgradoParams: any[] = [];
+    const posgradoConditions: string[] = ['e.carrera_id IN (15, 16)'];
+    if (anio) {
+      posgradoConditions.push(`e.anio_egreso = ?`);
+      posgradoParams.push(anio);
+    }
+    const posgradoWhere = `WHERE ${posgradoConditions.join(' AND ')}`;
+
     const posgradoPorTipo = await this.dataSource.query(`
       SELECT
         c.nombre_carrera AS tipo_posgrado,
         COUNT(*)         AS total
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-      WHERE e.carrera_id IN (15, 16)
+      ${posgradoWhere}
       GROUP BY c.nombre_carrera
       ORDER BY total DESC
-    `);
+    `, posgradoParams);
 
     const [totalPosgrado] = await this.dataSource.query(`
       SELECT COUNT(*) AS total
       FROM egresados e
-      WHERE e.carrera_id IN (15, 16)
-    `);
+      ${posgradoWhere}
+    `, posgradoParams);
 
-    // 19. Titulación por carrera y año combinados (para tabla de detalle)
-    //     Excluye también Maestría y Posgrado (id 15 y 16).
+    // 19. Titulación por carrera y año — respeta filtros de carrera y año
     const titulacionCarreraAnio = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -712,10 +723,11 @@ export class EgresadosService {
         ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1)   AS pct_titulados
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-      WHERE e.carrera_id NOT IN (15, 16)
+      ${where}
+      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera, e.anio_egreso
       ORDER BY c.nombre_carrera ASC, e.anio_egreso ASC
-    `);
+    `, params);
 
     // ─────────────────────────────────────────────────────────────────────
 
