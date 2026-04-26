@@ -660,10 +660,7 @@ export class EgresadosService {
 
     // ── TITULACIÓN ────────────────────────────────────────────────────────
 
-    // 17. Titulación por carrera — respeta filtros de carrera y año
-    //     Excluye Maestría (id=15) y Posgrado (id=16).
-    //     El ${where} ya incluye "WHERE 1=1 [AND c.nombre_carrera=?] [AND e.anio_egreso=?]"
-    //     solo hay que añadir el AND extra para excluir posgrados.
+    // 17. Titulación por carrera
     const titulacionCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -682,10 +679,7 @@ export class EgresadosService {
       ORDER BY pct_titulados DESC
     `, params);
 
-    // 18. Egresados con posgrado — respeta filtro de año si aplica.
-    //     El filtro de carrera NO aplica aquí porque si se filtra por "Arquitectura"
-    //     los posgrados (id 15,16) nunca coincidirían; en ese caso devuelve 0.
-    //     Se construye un where propio solo con el filtro de año.
+    // 18. Egresados con posgrado
     const posgradoParams: any[] = [];
     const posgradoConditions: string[] = ['e.carrera_id IN (15, 16)'];
     if (anio) {
@@ -711,7 +705,7 @@ export class EgresadosService {
       ${posgradoWhere}
     `, posgradoParams);
 
-    // 19. Titulación por carrera y año — respeta filtros de carrera y año
+    // 19. Titulación por carrera y año
     const titulacionCarreraAnio = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -728,8 +722,6 @@ export class EgresadosService {
       GROUP BY c.nombre_carrera, e.anio_egreso
       ORDER BY c.nombre_carrera ASC, e.anio_egreso ASC
     `, params);
-
-    // ─────────────────────────────────────────────────────────────────────
 
     return {
       kpis,
@@ -748,11 +740,200 @@ export class EgresadosService {
       coincidenciaCarrera,
       tiempoEmpleoCarrera,
       tiempoEmpleoGeneral,
-      // ── nuevos para página Titulación ──
       titulacionCarrera,
       posgradoPorTipo,
       totalPosgrado,
       titulacionCarreraAnio,
+    };
+  }
+
+
+  // ── DISTRIBUCIÓN GEOGRÁFICA ───────────────────────────────────────────────
+  //
+  // Lógica de detección de país basada en el formato de Nominatim:
+  //   "Ciudad, Estado, País"  →  el último segmento separado por coma es el país.
+  //   México:     TRIM(SUBSTRING_INDEX(ciudad_trabajo, ',', -1)) = 'México'
+  //   Extranjero: cualquier valor donde el último segmento NO sea 'México'
+  //
+  async getDistribucionGeografica(carrera?: string, anio?: number): Promise<any> {
+
+    const params: any[] = [];
+    const conditions: string[] = ['1=1'];
+
+    if (carrera) {
+      conditions.push(`c.nombre_carrera = ?`);
+      params.push(carrera);
+    }
+    if (anio) {
+      conditions.push(`e.anio_egreso = ?`);
+      params.push(anio);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    // ── 1. KPIs geográficos ───────────────────────────────────────────────
+    // total_mapeados   → egresados que tienen ciudad_trabajo registrada
+    // en_extranjero    → último segmento del string ≠ 'México'
+    // paises_distintos → conteo de países únicos fuera de México
+    // ciudades_trabajo → ciudades de trabajo únicas en total
+    const [kpisGeo] = await this.dataSource.query(`
+      SELECT
+        COUNT(*)                                                              AS total_mapeados,
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+        )                                                                     AS con_ciudad_trabajo,
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+        )                                                                     AS en_extranjero,
+        COUNT(DISTINCT
+          CASE
+            WHEN e.ciudad_trabajo IS NOT NULL
+              AND e.ciudad_trabajo != ''
+              AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+            THEN TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1))
+          END
+        )                                                                     AS paises_distintos,
+        COUNT(DISTINCT
+          CASE
+            WHEN e.ciudad_trabajo IS NOT NULL AND e.ciudad_trabajo != ''
+            THEN e.ciudad_trabajo
+          END
+        )                                                                     AS ciudades_trabajo_distintas
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+    `, params);
+
+    // ── 2. Top ciudades de trabajo (todas, incluyendo Durango) ────────────
+    // Devuelve las 10 ciudades donde más egresados trabajan.
+    // Incluye tanto México como extranjero para el mapa nacional y el ranking.
+    const topCiudadesTrabajo = await this.dataSource.query(`
+      SELECT
+        e.ciudad_trabajo,
+        COUNT(*) AS total
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.ciudad_trabajo IS NOT NULL
+      AND e.ciudad_trabajo != ''
+      GROUP BY e.ciudad_trabajo
+      ORDER BY total DESC
+      LIMIT 10
+    `, params);
+
+    // ── 3. Egresados en el extranjero agrupados por país ──────────────────
+    // Extrae el país usando SUBSTRING_INDEX(campo, ',', -1).
+    // Funciona para: "Londres, Reino Unido", "Nueva York, Estados Unidos",
+    //               "Abu Dabi, Emiratos Árabes", "Copenhague, Dinamarca", etc.
+    const extranjerosPorPais = await this.dataSource.query(`
+      SELECT
+        TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) AS pais,
+        COUNT(*) AS total
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.ciudad_trabajo IS NOT NULL
+      AND e.ciudad_trabajo != ''
+      AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+      GROUP BY pais
+      ORDER BY total DESC
+    `, params);
+
+    // ── 4. Egresados en el extranjero con ciudad detallada ────────────────
+    // Para el mapa mundial: ciudad + país + total.
+    const extranjerosDetalle = await this.dataSource.query(`
+      SELECT
+        e.ciudad_trabajo,
+        TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1))  AS pais,
+        COUNT(*) AS total
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.ciudad_trabajo IS NOT NULL
+      AND e.ciudad_trabajo != ''
+      AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+      GROUP BY e.ciudad_trabajo
+      ORDER BY total DESC
+    `, params);
+
+    // ── 5. Movilidad por año de egreso ────────────────────────────────────
+    // Cuenta cuántos egresados de cada año trabajan fuera de Durango.
+    // pct_fuera_durango incluye tanto otras ciudades de México como extranjero.
+    // No aplica filtro de carrera para mostrar siempre la línea de tiempo completa,
+    // pero SÍ lo respeta si el usuario filtra desde el frontend.
+    const movilidadPorAnio = await this.dataSource.query(`
+      SELECT
+        e.anio_egreso,
+        COUNT(*)                                                AS total,
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND e.ciudad_trabajo NOT LIKE 'Durango%'
+        )                                                       AS fuera_durango,
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+        )                                                       AS en_extranjero,
+        ROUND(
+          SUM(
+            e.ciudad_trabajo IS NOT NULL
+            AND e.ciudad_trabajo != ''
+            AND e.ciudad_trabajo NOT LIKE 'Durango%'
+          ) * 100.0 / COUNT(*), 1
+        )                                                       AS pct_fuera_durango,
+        ROUND(
+          SUM(
+            e.ciudad_trabajo IS NOT NULL
+            AND e.ciudad_trabajo != ''
+            AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+          ) * 100.0 / COUNT(*), 1
+        )                                                       AS pct_extranjero
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY e.anio_egreso
+      ORDER BY e.anio_egreso ASC
+    `, params);
+
+    // ── 6. Movilidad por carrera ──────────────────────────────────────────
+    // Porcentaje de egresados de cada carrera que trabaja fuera de Durango.
+    // No aplica filtro de año para mostrar siempre todas las carreras,
+    // pero SÍ lo respeta si el usuario filtra desde el frontend.
+    const movilidadPorCarrera = await this.dataSource.query(`
+      SELECT
+        c.nombre_carrera,
+        COUNT(*)                                                AS total,
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND e.ciudad_trabajo NOT LIKE 'Durango%'
+        )                                                       AS fuera_durango,
+        ROUND(
+          SUM(
+            e.ciudad_trabajo IS NOT NULL
+            AND e.ciudad_trabajo != ''
+            AND e.ciudad_trabajo NOT LIKE 'Durango%'
+          ) * 100.0 / COUNT(*), 1
+        )                                                       AS pct_fuera_durango
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.carrera_id NOT IN (15, 16)
+      GROUP BY c.nombre_carrera
+      ORDER BY pct_fuera_durango DESC
+    `, params);
+
+    return {
+      kpisGeo,
+      topCiudadesTrabajo,
+      extranjerosPorPais,
+      extranjerosDetalle,
+      movilidadPorAnio,
+      movilidadPorCarrera,
     };
   }
 }

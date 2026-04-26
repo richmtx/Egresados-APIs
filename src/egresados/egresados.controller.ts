@@ -52,6 +52,17 @@ export class EgresadosController {
     );
   }
 
+  @Get('distribucion-geografica')
+  getDistribucionGeografica(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getDistribucionGeografica(
+      carrera,
+      anio ? Number(anio) : undefined,
+    );
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.egresadosService.remove(id);
