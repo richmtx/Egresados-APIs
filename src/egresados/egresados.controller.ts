@@ -63,6 +63,48 @@ export class EgresadosController {
     );
   }
 
+  @Get('vinculacion/colaboracion')
+  getEgresadosPorColaboracion(@Query('tipo') tipo: string) {
+    return this.egresadosService.getEgresadosPorColaboracion(tipo);
+  }
+
+  @Get('vinculacion/habilidad')
+  getEgresadosPorHabilidad(@Query('tipo') tipo: string) {
+    return this.egresadosService.getEgresadosPorHabilidad(tipo);
+  }
+
+  @Get('vinculacion/autorizacion')
+  getEgresadosPorAutorizacion(
+    @Query('tipo') tipo: 'estadisticas' | 'contacto' | 'eventos',
+  ) {
+    return this.egresadosService.getEgresadosPorAutorizacion(tipo);
+  }
+
+  @Get('vinculacion/totales-colaboraciones')
+  getTotalesColaboraciones() {
+    return this.egresadosService.getTotalesColaboraciones();
+  }
+
+  @Get('vinculacion/totales-habilidades')
+  getTotalesHabilidades() {
+    return this.egresadosService.getTotalesHabilidades();
+  }
+
+  @Get('vinculacion/colaboracion-otro')
+  getEgresadosColaboracionOtro() {
+    return this.egresadosService.getEgresadosColaboracionOtro();
+  }
+
+  @Get('vinculacion/habilidad-otro')
+  getEgresadosHabilidadOtro() {
+    return this.egresadosService.getEgresadosHabilidadOtro();
+  }
+
+  @Get('vinculacion/distribucion-satisfaccion')
+  getDistribucionSatisfaccion() {
+    return this.egresadosService.getDistribucionSatisfaccion();
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.egresadosService.remove(id);

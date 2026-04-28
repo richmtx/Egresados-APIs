@@ -936,4 +936,166 @@ export class EgresadosService {
       movilidadPorCarrera,
     };
   }
+
+  // VINCULACIÓN: egresados por colaboración
+  async getEgresadosPorColaboracion(colaboracion: string): Promise<any[]> {
+    return this.dataSource.query(`
+  SELECT
+    e.id_egresado,
+    e.nombre_completo,
+    e.correo,
+    e.telefono,
+    c.nombre_carrera,
+    g.genero
+  FROM egresado_colaboraciones ec
+  JOIN colaboraciones col ON ec.id_colaboracion = col.id_colaboracion
+  JOIN egresados e        ON ec.id_egresado      = e.id_egresado
+  LEFT JOIN carreras c    ON e.carrera_id         = c.id_carrera
+  LEFT JOIN generos g     ON e.genero_id          = g.id_genero
+  WHERE col.descripcion = ?
+  ORDER BY e.nombre_completo ASC
+`, [colaboracion]);
+  }
+
+  // VINCULACIÓN: egresados por habilidad a reforzar
+  async getEgresadosPorHabilidad(habilidad: string): Promise<any[]> {
+    return this.dataSource.query(`
+  SELECT
+    e.id_egresado,
+    e.nombre_completo,
+    e.correo,
+    e.telefono,
+    c.nombre_carrera,
+    g.genero
+  FROM egresado_habilidades eh
+  JOIN habilidades h      ON eh.id_habilidad = h.id_habilidad
+  JOIN egresados e        ON eh.id_egresado  = e.id_egresado
+  LEFT JOIN carreras c    ON e.carrera_id    = c.id_carrera
+  LEFT JOIN generos g     ON e.genero_id     = g.id_genero
+  WHERE h.habilidad = ?
+  ORDER BY e.nombre_completo ASC
+`, [habilidad]);
+  }
+
+  // VINCULACIÓN: egresados por tipo de autorización
+  async getEgresadosPorAutorizacion(
+    tipo: 'estadisticas' | 'contacto' | 'eventos',
+  ): Promise<any[]> {
+    const columna = {
+      estadisticas: 'aut.autorizo_estadisticas',
+      contacto: 'aut.autorizo_contacto',
+      eventos: 'aut.autorizo_eventos',
+    }[tipo];
+
+    return this.dataSource.query(`
+  SELECT
+    e.id_egresado,
+    e.nombre_completo,
+    e.correo,
+    e.telefono,
+    c.nombre_carrera,
+    g.genero
+  FROM autorizaciones aut
+  JOIN egresados e     ON aut.id_egresado = e.id_egresado
+  LEFT JOIN carreras c ON e.carrera_id    = c.id_carrera
+  LEFT JOIN generos g  ON e.genero_id     = g.id_genero
+  WHERE ${columna} = 1
+  ORDER BY e.nombre_completo ASC
+`);
+  }
+
+  // VINCULACIÓN: totales por colaboración (incluye "Otro")
+  async getTotalesColaboraciones(): Promise<any[]> {
+    const fijas = await this.dataSource.query(`
+    SELECT
+      col.descripcion,
+      COUNT(ec.id_egresado) AS total
+    FROM colaboraciones col
+    LEFT JOIN egresado_colaboraciones ec ON col.id_colaboracion = ec.id_colaboracion
+    GROUP BY col.id_colaboracion, col.descripcion
+    ORDER BY total DESC
+  `);
+
+    const [otro] = await this.dataSource.query(`
+    SELECT COUNT(*) AS total FROM colaboracion_otro
+  `);
+
+    return [
+      ...fijas,
+      { descripcion: '__otro__', total: +otro.total || 0 },
+    ];
+  }
+
+  // VINCULACIÓN: totales por habilidad (incluye "Otro")
+  async getTotalesHabilidades(): Promise<any[]> {
+    const fijas = await this.dataSource.query(`
+    SELECT
+      h.habilidad,
+      COUNT(eh.id_egresado) AS total
+    FROM habilidades h
+    LEFT JOIN egresado_habilidades eh ON h.id_habilidad = eh.id_habilidad
+    GROUP BY h.id_habilidad, h.habilidad
+    ORDER BY total DESC
+  `);
+
+    const [otro] = await this.dataSource.query(`
+    SELECT COUNT(*) AS total FROM habilidades_otro
+  `);
+
+    return [
+      ...fijas,
+      { habilidad: '__otro__', total: +otro.total || 0 },
+    ];
+  }
+
+  // VINCULACIÓN: egresados con colaboración "Otro"
+  async getEgresadosColaboracionOtro(): Promise<any[]> {
+    return this.dataSource.query(`
+    SELECT
+      e.id_egresado,
+      e.nombre_completo,
+      e.correo,
+      e.telefono,
+      c.nombre_carrera,
+      g.genero,
+      co.descripcion AS descripcion_otro
+    FROM colaboracion_otro co
+    JOIN egresados e     ON co.id_egresado = e.id_egresado
+    LEFT JOIN carreras c ON e.carrera_id   = c.id_carrera
+    LEFT JOIN generos g  ON e.genero_id    = g.id_genero
+    ORDER BY e.nombre_completo ASC
+  `);
+  }
+
+  // VINCULACIÓN: egresados con habilidad "Otro"
+  async getEgresadosHabilidadOtro(): Promise<any[]> {
+    return this.dataSource.query(`
+    SELECT
+      e.id_egresado,
+      e.nombre_completo,
+      e.correo,
+      e.telefono,
+      c.nombre_carrera,
+      g.genero,
+      ho.descripcion AS descripcion_otro
+    FROM habilidades_otro ho
+    JOIN egresados e     ON ho.id_egresado = e.id_egresado
+    LEFT JOIN carreras c ON e.carrera_id   = c.id_carrera
+    LEFT JOIN generos g  ON e.genero_id    = g.id_genero
+    ORDER BY e.nombre_completo ASC
+  `);
+  }
+
+  // VINCULACIÓN: distribución real de satisfacción (conteo por nivel 1-5)
+  async getDistribucionSatisfaccion(): Promise<any[]> {
+    return this.dataSource.query(`
+    SELECT
+      satisfaccion_formacion AS nivel,
+      COUNT(*)               AS total
+    FROM egresados
+    WHERE satisfaccion_formacion IS NOT NULL
+    GROUP BY satisfaccion_formacion
+    ORDER BY satisfaccion_formacion ASC
+  `);
+  }
 }
