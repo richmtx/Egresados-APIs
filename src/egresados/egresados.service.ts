@@ -1074,29 +1074,36 @@ export class EgresadosService {
   `);
   }
 
-  // ESTADÍSTICAS DE GÉNERO
+  // ── NORMALIZACIÓN DE GÉNERO ───────────────────────────────────────────────
+  // La BD guarda 'masculino' / 'femenino'. Este CASE los normaliza a
+  // 'Hombre' / 'Mujer' en todas las queries para que el frontend
+  // no necesite conocer los valores internos de la BD.
+  private readonly generoCase = `
+    CASE g.genero
+      WHEN 'masculino'       THEN 'Hombre'
+      WHEN 'femenino'        THEN 'Mujer'
+      WHEN 'prefiero no decir' THEN 'Prefiero no decir'
+      ELSE g.genero
+    END
+  `;
+
+  // ── ESTADÍSTICAS DE GÉNERO ────────────────────────────────────────────────
   async getEstadisticasGenero(carrera?: string, anio?: number): Promise<any> {
 
     const params: any[] = [];
     const conditions: string[] = ['1=1'];
 
-    if (carrera) {
-      conditions.push(`c.nombre_carrera = ?`);
-      params.push(carrera);
-    }
-    if (anio) {
-      conditions.push(`e.anio_egreso = ?`);
-      params.push(anio);
-    }
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
 
     const where = `WHERE ${conditions.join(' AND ')}`;
 
-    // 1. KPIs principales por género
+    // ── 1. KPIs principales por género ────────────────────────────────────
     const kpisGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
-        COUNT(*)                                                AS total,
-        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1)    AS porcentaje
+        ${this.generoCase}                                                    AS genero,
+        COUNT(*)                                                              AS total,
+        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1)                   AS porcentaje
       FROM egresados e
       LEFT JOIN generos g  ON e.genero_id  = g.id_genero
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
@@ -1105,11 +1112,11 @@ export class EgresadosService {
       ORDER BY total DESC
     `, params);
 
-    // 2. Carrera con mayor proporción femenina y masculina
+    // ── 2. Proporción H/M por carrera (para KPIs de carrera más femenina/masculina) ──
     const proporcionCarreraGenero = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total,
         ROUND(
           COUNT(*) * 100.0
@@ -1124,11 +1131,11 @@ export class EgresadosService {
       ORDER BY c.nombre_carrera, g.genero
     `, params);
 
-    // 3. Egreso por año × género
+    // ── 3. Egreso por año × género ────────────────────────────────────────
     const egresoAnioGenero = await this.dataSource.query(`
       SELECT
         e.anio_egreso,
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total,
         ROUND(
           COUNT(*) * 100.0
@@ -1142,11 +1149,11 @@ export class EgresadosService {
       ORDER BY e.anio_egreso ASC, g.genero
     `, params);
 
-    // 4. Composición H/M por carrera
+    // ── 4. Composición H/M por carrera (barras 100% apiladas) ────────────
     const composicionCarreraGenero = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total,
         ROUND(
           COUNT(*) * 100.0
@@ -1161,10 +1168,10 @@ export class EgresadosService {
       ORDER BY c.nombre_carrera, g.genero
     `, params);
 
-    // 5. Tasa de empleo por género
+    // ── 5. Tasa de empleo por género ──────────────────────────────────────
     const empleabilidadGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total,
         SUM(sl.situacion != 'Desempleado')                                    AS empleados,
         SUM(sl.situacion  = 'Desempleado')                                    AS desempleados,
@@ -1180,10 +1187,10 @@ export class EgresadosService {
       GROUP BY g.genero
     `, params);
 
-    // 6. Sector laboral por género
+    // ── 6. Sector laboral por género ──────────────────────────────────────
     const sectorLaboralGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         sl.situacion                                                          AS sector,
         COUNT(*)                                                              AS total,
         ROUND(
@@ -1199,10 +1206,10 @@ export class EgresadosService {
       ORDER BY g.genero, total DESC
     `, params);
 
-    // 7. Coincidencia laboral por género
+    // ── 7. Coincidencia laboral por género ────────────────────────────────
     const coincidenciaLaboralGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         cl.nivel                                                              AS coincidencia,
         COUNT(*)                                                              AS total,
         ROUND(
@@ -1210,18 +1217,18 @@ export class EgresadosService {
           / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
         )                                                                     AS porcentaje
       FROM egresados e
-      LEFT JOIN generos            g  ON e.genero_id             = g.id_genero
+      LEFT JOIN generos             g  ON e.genero_id             = g.id_genero
       LEFT JOIN coincidencia_laboral cl ON e.coincidencia_laboral_id = cl.id_coincidencia
-      LEFT JOIN carreras           c  ON e.carrera_id            = c.id_carrera
+      LEFT JOIN carreras            c  ON e.carrera_id            = c.id_carrera
       ${where}
       GROUP BY g.genero, cl.nivel
       ORDER BY g.genero, total DESC
     `, params);
 
-    // 8. Tiempo promedio en conseguir empleo por género
+    // ── 8. Tiempo promedio en conseguir empleo por género ─────────────────
     const tiempoEmpleoGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         ROUND(AVG(
           CASE ae.rango
             WHEN 'Menos de 1 año' THEN 0.5
@@ -1240,10 +1247,10 @@ export class EgresadosService {
       GROUP BY g.genero
     `, params);
 
-    // 9. Distribución geográfica por género
+    // ── 9. Distribución geográfica por género ─────────────────────────────
     const geografiaGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total,
         SUM(
           e.ciudad_trabajo LIKE 'Durango%'
@@ -1275,10 +1282,10 @@ export class EgresadosService {
       GROUP BY g.genero
     `, params);
 
-    // 10. Top ciudades de trabajo por género
+    // ── 10. Top ciudades de trabajo por género ────────────────────────────
     const topCiudadesGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         e.ciudad_trabajo,
         COUNT(*)                                                              AS total
       FROM egresados e
@@ -1291,23 +1298,17 @@ export class EgresadosService {
       ORDER BY g.genero, total DESC
     `, params);
 
-    // 11. Titulación global por género
+    // ── 11. Titulación global por género ──────────────────────────────────
     const titulacionGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total,
         SUM(e.estatus_titulacion = 'Titulado')                                AS titulados,
         SUM(e.estatus_titulacion = 'En trámite')                              AS en_tramite,
         SUM(e.estatus_titulacion = 'No titulado')                             AS no_titulados,
-        ROUND(
-          SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1
-        )                                                                     AS pct_titulados,
-        ROUND(
-          SUM(e.estatus_titulacion = 'En trámite') * 100.0 / COUNT(*), 1
-        )                                                                     AS pct_en_tramite,
-        ROUND(
-          SUM(e.estatus_titulacion = 'No titulado') * 100.0 / COUNT(*), 1
-        )                                                                     AS pct_no_titulados
+        ROUND(SUM(e.estatus_titulacion = 'Titulado')   * 100.0 / COUNT(*), 1) AS pct_titulados,
+        ROUND(SUM(e.estatus_titulacion = 'En trámite') * 100.0 / COUNT(*), 1) AS pct_en_tramite,
+        ROUND(SUM(e.estatus_titulacion = 'No titulado')* 100.0 / COUNT(*), 1) AS pct_no_titulados
       FROM egresados e
       LEFT JOIN generos  g ON e.genero_id  = g.id_genero
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
@@ -1316,11 +1317,11 @@ export class EgresadosService {
       GROUP BY g.genero
     `, params);
 
-    // 12. Titulación por año × género
+    // ── 12. Titulación por año × género ───────────────────────────────────
     const titulacionAnioGenero = await this.dataSource.query(`
       SELECT
         e.anio_egreso,
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total,
         SUM(e.estatus_titulacion = 'Titulado')                                AS titulados,
         ROUND(
@@ -1335,21 +1336,27 @@ export class EgresadosService {
       ORDER BY e.anio_egreso ASC, g.genero
     `, params);
 
-    // 13. Posgrado por género
+    // ── 13. Posgrado por género ───────────────────────────────────────────
+    // No aplica filtro de carrera porque el posgrado IS carrera_id IN (15,16)
+    const posgradoParams: any[] = [];
+    const posgradoConditions: string[] = ['e.carrera_id IN (15, 16)'];
+    if (anio) { posgradoConditions.push(`e.anio_egreso = ?`); posgradoParams.push(anio); }
+    const posgradoWhere = `WHERE ${posgradoConditions.join(' AND ')}`;
+
     const posgradoGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         COUNT(*)                                                              AS total
       FROM egresados e
-      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
-      WHERE e.carrera_id IN (15, 16)
+      LEFT JOIN generos g ON e.genero_id = g.id_genero
+      ${posgradoWhere}
       GROUP BY g.genero
-    `);
+    `, posgradoParams);
 
-    // 14. Posgrado por tipo y género
+    // ── 14. Posgrado por tipo y género ────────────────────────────────────
     const posgradoTipoGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         c.nombre_carrera                                                      AS tipo_posgrado,
         COUNT(*)                                                              AS total,
         ROUND(
@@ -1359,15 +1366,15 @@ export class EgresadosService {
       FROM egresados e
       LEFT JOIN generos  g ON e.genero_id  = g.id_genero
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-      WHERE e.carrera_id IN (15, 16)
+      ${posgradoWhere}
       GROUP BY g.genero, c.nombre_carrera
       ORDER BY g.genero, total DESC
-    `);
+    `, posgradoParams);
 
-    // 15. Nivel de inglés por género
+    // ── 15. Nivel de inglés por género ────────────────────────────────────
     const inglesGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         ni.nivel,
         COUNT(*)                                                              AS total,
         ROUND(
@@ -1375,18 +1382,18 @@ export class EgresadosService {
           / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
         )                                                                     AS porcentaje
       FROM egresados e
-      LEFT JOIN generos       g  ON e.genero_id       = g.id_genero
+      LEFT JOIN generos        g  ON e.genero_id       = g.id_genero
       LEFT JOIN niveles_ingles ni ON e.nivel_ingles_id = ni.id_nivel
-      LEFT JOIN carreras      c  ON e.carrera_id      = c.id_carrera
+      LEFT JOIN carreras       c  ON e.carrera_id      = c.id_carrera
       ${where}
       GROUP BY g.genero, ni.nivel
       ORDER BY g.genero, total DESC
     `, params);
 
-    // 16. Satisfacción académica por género
+    // ── 16. Satisfacción académica por género ─────────────────────────────
     const satisfaccionGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         ROUND(AVG(e.satisfaccion_formacion), 2)                               AS promedio,
         COUNT(*)                                                              AS total,
         SUM(e.satisfaccion_formacion = 5)                                     AS muy_satisfecho,
@@ -1401,10 +1408,10 @@ export class EgresadosService {
       GROUP BY g.genero
     `, params);
 
-    // 17. Habilidades que consideran les faltaron por género
+    // ── 17. Habilidades que faltaron por género ───────────────────────────
     const habilidadesGenero = await this.dataSource.query(`
       SELECT
-        g.genero,
+        ${this.generoCase}                                                    AS genero,
         h.habilidad,
         COUNT(*)                                                              AS total,
         ROUND(
