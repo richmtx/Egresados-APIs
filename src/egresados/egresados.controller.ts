@@ -105,6 +105,14 @@ export class EgresadosController {
     return this.egresadosService.getDistribucionSatisfaccion();
   }
 
+  @Get('estadisticas/genero')
+  getEstadisticasGenero(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: number,
+  ) {
+    return this.egresadosService.getEstadisticasGenero(carrera, anio ? +anio : undefined);
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.egresadosService.remove(id);

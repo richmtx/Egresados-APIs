@@ -125,7 +125,7 @@ export class EgresadosService {
     });
   }
 
-  // ── ETAPA 1 ──────────────────────────────────────────────────────────────
+  // ETAPA 1
   async crearEtapa1(dto: CreateEgresadoEtapa1Dto): Promise<{ id_egresado: number; mensaje: string }> {
 
     const genero_id = await this.resolveId('generos', 'id_genero', 'genero', dto.genero);
@@ -215,8 +215,7 @@ export class EgresadosService {
     return { id_egresado, mensaje: 'Etapa 1 guardada correctamente.' };
   }
 
-
-  // ── ETAPA 2 ──────────────────────────────────────────────────────────────
+  // ETAPA 2
   async completarEtapa2(
     id_egresado: number,
     dto: CreateEgresadoEtapa2Dto,
@@ -296,7 +295,7 @@ export class EgresadosService {
   }
 
 
-  // ── BUSCAR POR CORREO ────────────────────────────────────────────────────
+  // BUSCAR POR CORREO
   async buscarPorCorreo(correo: string): Promise<{ id_egresado: number } | null> {
     const rows = await this.dataSource.query(
       `SELECT id_egresado FROM egresados WHERE correo = ? LIMIT 1`, [correo],
@@ -305,7 +304,7 @@ export class EgresadosService {
   }
 
 
-  // ── FIND ALL ─────────────────────────────────────────────────────────────
+  // FIND ALL
   async findAll(): Promise<Egresado[]> {
     return this.egresadosRepo.find();
   }
@@ -340,7 +339,7 @@ export class EgresadosService {
   }
 
 
-  // ── REMOVE ───────────────────────────────────────────────────────────────
+  // REMOVE
   async remove(id: number): Promise<{ mensaje: string }> {
 
     const existe = await this.egresadosRepo.findOne({ where: { id_egresado: id } });
@@ -360,7 +359,7 @@ export class EgresadosService {
   }
 
 
-  // ── GET PERFIL ───────────────────────────────────────────────────────────
+  // GET PERFIL
   async getPerfil(id: number): Promise<any> {
     const rows = await this.dataSource.query(`
       SELECT
@@ -423,7 +422,7 @@ export class EgresadosService {
   }
 
 
-  // ── ESTADÍSTICAS ─────────────────────────────────────────────────────────
+  // ESTADÍSTICAS
   async getEstadisticas(carrera?: string, anio?: number): Promise<any> {
 
     const params: any[] = [];
@@ -658,7 +657,7 @@ export class EgresadosService {
       AND sl.situacion != 'Desempleado'
     `, params);
 
-    // ── TITULACIÓN ────────────────────────────────────────────────────────
+    // TITULACIÓN
 
     // 17. Titulación por carrera
     const titulacionCarrera = await this.dataSource.query(`
@@ -747,14 +746,7 @@ export class EgresadosService {
     };
   }
 
-
-  // ── DISTRIBUCIÓN GEOGRÁFICA ───────────────────────────────────────────────
-  //
-  // Lógica de detección de país basada en el formato de Nominatim:
-  //   "Ciudad, Estado, País"  →  el último segmento separado por coma es el país.
-  //   México:     TRIM(SUBSTRING_INDEX(ciudad_trabajo, ',', -1)) = 'México'
-  //   Extranjero: cualquier valor donde el último segmento NO sea 'México'
-  //
+  // DISTRIBUCIÓN GEOGRÁFICA
   async getDistribucionGeografica(carrera?: string, anio?: number): Promise<any> {
 
     const params: any[] = [];
@@ -771,11 +763,7 @@ export class EgresadosService {
 
     const where = `WHERE ${conditions.join(' AND ')}`;
 
-    // ── 1. KPIs geográficos ───────────────────────────────────────────────
-    // total_mapeados   → egresados que tienen ciudad_trabajo registrada
-    // en_extranjero    → último segmento del string ≠ 'México'
-    // paises_distintos → conteo de países únicos fuera de México
-    // ciudades_trabajo → ciudades de trabajo únicas en total
+    // 1. KPIs geográficos
     const [kpisGeo] = await this.dataSource.query(`
       SELECT
         COUNT(*)                                                              AS total_mapeados,
@@ -807,9 +795,7 @@ export class EgresadosService {
       ${where}
     `, params);
 
-    // ── 2. Top ciudades de trabajo (todas, incluyendo Durango) ────────────
-    // Devuelve las 10 ciudades donde más egresados trabajan.
-    // Incluye tanto México como extranjero para el mapa nacional y el ranking.
+    // 2. Top ciudades de trabajo (todas, incluyendo Durango)
     const topCiudadesTrabajo = await this.dataSource.query(`
       SELECT
         e.ciudad_trabajo,
@@ -824,10 +810,7 @@ export class EgresadosService {
       LIMIT 10
     `, params);
 
-    // ── 3. Egresados en el extranjero agrupados por país ──────────────────
-    // Extrae el país usando SUBSTRING_INDEX(campo, ',', -1).
-    // Funciona para: "Londres, Reino Unido", "Nueva York, Estados Unidos",
-    //               "Abu Dabi, Emiratos Árabes", "Copenhague, Dinamarca", etc.
+    // 3. Egresados en el extranjero agrupados por país
     const extranjerosPorPais = await this.dataSource.query(`
       SELECT
         TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) AS pais,
@@ -842,8 +825,7 @@ export class EgresadosService {
       ORDER BY total DESC
     `, params);
 
-    // ── 4. Egresados en el extranjero con ciudad detallada ────────────────
-    // Para el mapa mundial: ciudad + país + total.
+    // 4. Egresados en el extranjero con ciudad detallada
     const extranjerosDetalle = await this.dataSource.query(`
       SELECT
         e.ciudad_trabajo,
@@ -859,11 +841,7 @@ export class EgresadosService {
       ORDER BY total DESC
     `, params);
 
-    // ── 5. Movilidad por año de egreso ────────────────────────────────────
-    // Cuenta cuántos egresados de cada año trabajan fuera de Durango.
-    // pct_fuera_durango incluye tanto otras ciudades de México como extranjero.
-    // No aplica filtro de carrera para mostrar siempre la línea de tiempo completa,
-    // pero SÍ lo respeta si el usuario filtra desde el frontend.
+    // 5. Movilidad por año de egreso
     const movilidadPorAnio = await this.dataSource.query(`
       SELECT
         e.anio_egreso,
@@ -899,10 +877,7 @@ export class EgresadosService {
       ORDER BY e.anio_egreso ASC
     `, params);
 
-    // ── 6. Movilidad por carrera ──────────────────────────────────────────
-    // Porcentaje de egresados de cada carrera que trabaja fuera de Durango.
-    // No aplica filtro de año para mostrar siempre todas las carreras,
-    // pero SÍ lo respeta si el usuario filtra desde el frontend.
+    // 6. Movilidad por carrera
     const movilidadPorCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -1097,5 +1072,373 @@ export class EgresadosService {
     GROUP BY satisfaccion_formacion
     ORDER BY satisfaccion_formacion ASC
   `);
+  }
+
+  // ESTADÍSTICAS DE GÉNERO
+  async getEstadisticasGenero(carrera?: string, anio?: number): Promise<any> {
+
+    const params: any[] = [];
+    const conditions: string[] = ['1=1'];
+
+    if (carrera) {
+      conditions.push(`c.nombre_carrera = ?`);
+      params.push(carrera);
+    }
+    if (anio) {
+      conditions.push(`e.anio_egreso = ?`);
+      params.push(anio);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    // 1. KPIs principales por género
+    const kpisGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        COUNT(*)                                                AS total,
+        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1)    AS porcentaje
+      FROM egresados e
+      LEFT JOIN generos g  ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY g.genero
+      ORDER BY total DESC
+    `, params);
+
+    // 2. Carrera con mayor proporción femenina y masculina
+    const proporcionCarreraGenero = await this.dataSource.query(`
+      SELECT
+        c.nombre_carrera,
+        g.genero,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY c.nombre_carrera), 1
+        )                                                                     AS porcentaje
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      ${where}
+      AND e.carrera_id NOT IN (15, 16)
+      GROUP BY c.nombre_carrera, g.genero
+      ORDER BY c.nombre_carrera, g.genero
+    `, params);
+
+    // 3. Egreso por año × género
+    const egresoAnioGenero = await this.dataSource.query(`
+      SELECT
+        e.anio_egreso,
+        g.genero,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY e.anio_egreso), 1
+        )                                                                     AS porcentaje_en_anio
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY e.anio_egreso, g.genero
+      ORDER BY e.anio_egreso ASC, g.genero
+    `, params);
+
+    // 4. Composición H/M por carrera
+    const composicionCarreraGenero = await this.dataSource.query(`
+      SELECT
+        c.nombre_carrera,
+        g.genero,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY c.nombre_carrera), 1
+        )                                                                     AS porcentaje
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      ${where}
+      AND e.carrera_id NOT IN (15, 16)
+      GROUP BY c.nombre_carrera, g.genero
+      ORDER BY c.nombre_carrera, g.genero
+    `, params);
+
+    // 5. Tasa de empleo por género
+    const empleabilidadGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        COUNT(*)                                                              AS total,
+        SUM(sl.situacion != 'Desempleado')                                    AS empleados,
+        SUM(sl.situacion  = 'Desempleado')                                    AS desempleados,
+        ROUND(
+          SUM(sl.situacion != 'Desempleado') * 100.0 / COUNT(*), 1
+        )                                                                     AS pct_empleados,
+        ROUND(AVG(e.satisfaccion_formacion), 2)                               AS satisfaccion_promedio
+      FROM egresados e
+      LEFT JOIN generos          g  ON e.genero_id           = g.id_genero
+      LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+      LEFT JOIN carreras         c  ON e.carrera_id          = c.id_carrera
+      ${where}
+      GROUP BY g.genero
+    `, params);
+
+    // 6. Sector laboral por género
+    const sectorLaboralGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        sl.situacion                                                          AS sector,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
+        )                                                                     AS porcentaje
+      FROM egresados e
+      LEFT JOIN generos          g  ON e.genero_id           = g.id_genero
+      LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+      LEFT JOIN carreras         c  ON e.carrera_id          = c.id_carrera
+      ${where}
+      GROUP BY g.genero, sl.situacion
+      ORDER BY g.genero, total DESC
+    `, params);
+
+    // 7. Coincidencia laboral por género
+    const coincidenciaLaboralGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        cl.nivel                                                              AS coincidencia,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
+        )                                                                     AS porcentaje
+      FROM egresados e
+      LEFT JOIN generos            g  ON e.genero_id             = g.id_genero
+      LEFT JOIN coincidencia_laboral cl ON e.coincidencia_laboral_id = cl.id_coincidencia
+      LEFT JOIN carreras           c  ON e.carrera_id            = c.id_carrera
+      ${where}
+      GROUP BY g.genero, cl.nivel
+      ORDER BY g.genero, total DESC
+    `, params);
+
+    // 8. Tiempo promedio en conseguir empleo por género
+    const tiempoEmpleoGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        ROUND(AVG(
+          CASE ae.rango
+            WHEN 'Menos de 1 año' THEN 0.5
+            WHEN 'De 1 a 3 años'  THEN 2
+            WHEN 'Más de 3 años'  THEN 4
+            ELSE 0
+          END
+        ), 1)                                                                 AS tiempo_promedio_anios
+      FROM egresados e
+      LEFT JOIN generos          g  ON e.genero_id            = g.id_genero
+      LEFT JOIN antiguedad_empleo ae ON e.antiguedad_empleo_id = ae.id_antiguedad
+      LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+      LEFT JOIN carreras         c  ON e.carrera_id           = c.id_carrera
+      ${where}
+      AND sl.situacion != 'Desempleado'
+      GROUP BY g.genero
+    `, params);
+
+    // 9. Distribución geográfica por género
+    const geografiaGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        COUNT(*)                                                              AS total,
+        SUM(
+          e.ciudad_trabajo LIKE 'Durango%'
+          OR e.ciudad_trabajo IS NULL
+          OR e.ciudad_trabajo = ''
+        )                                                                     AS en_durango,
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND e.ciudad_trabajo NOT LIKE 'Durango%'
+          AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) = 'México'
+        )                                                                     AS fuera_durango_mexico,
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+        )                                                                     AS en_extranjero,
+        ROUND(
+          SUM(
+            e.ciudad_trabajo IS NOT NULL
+            AND e.ciudad_trabajo != ''
+            AND e.ciudad_trabajo NOT LIKE 'Durango%'
+          ) * 100.0 / COUNT(*), 1
+        )                                                                     AS pct_fuera_durango
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY g.genero
+    `, params);
+
+    // 10. Top ciudades de trabajo por género
+    const topCiudadesGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        e.ciudad_trabajo,
+        COUNT(*)                                                              AS total
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.ciudad_trabajo IS NOT NULL
+      AND e.ciudad_trabajo != ''
+      GROUP BY g.genero, e.ciudad_trabajo
+      ORDER BY g.genero, total DESC
+    `, params);
+
+    // 11. Titulación global por género
+    const titulacionGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        COUNT(*)                                                              AS total,
+        SUM(e.estatus_titulacion = 'Titulado')                                AS titulados,
+        SUM(e.estatus_titulacion = 'En trámite')                              AS en_tramite,
+        SUM(e.estatus_titulacion = 'No titulado')                             AS no_titulados,
+        ROUND(
+          SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1
+        )                                                                     AS pct_titulados,
+        ROUND(
+          SUM(e.estatus_titulacion = 'En trámite') * 100.0 / COUNT(*), 1
+        )                                                                     AS pct_en_tramite,
+        ROUND(
+          SUM(e.estatus_titulacion = 'No titulado') * 100.0 / COUNT(*), 1
+        )                                                                     AS pct_no_titulados
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.carrera_id NOT IN (15, 16)
+      GROUP BY g.genero
+    `, params);
+
+    // 12. Titulación por año × género
+    const titulacionAnioGenero = await this.dataSource.query(`
+      SELECT
+        e.anio_egreso,
+        g.genero,
+        COUNT(*)                                                              AS total,
+        SUM(e.estatus_titulacion = 'Titulado')                                AS titulados,
+        ROUND(
+          SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1
+        )                                                                     AS pct_titulados
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.carrera_id NOT IN (15, 16)
+      GROUP BY e.anio_egreso, g.genero
+      ORDER BY e.anio_egreso ASC, g.genero
+    `, params);
+
+    // 13. Posgrado por género
+    const posgradoGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        COUNT(*)                                                              AS total
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      WHERE e.carrera_id IN (15, 16)
+      GROUP BY g.genero
+    `);
+
+    // 14. Posgrado por tipo y género
+    const posgradoTipoGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        c.nombre_carrera                                                      AS tipo_posgrado,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
+        )                                                                     AS porcentaje
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      WHERE e.carrera_id IN (15, 16)
+      GROUP BY g.genero, c.nombre_carrera
+      ORDER BY g.genero, total DESC
+    `);
+
+    // 15. Nivel de inglés por género
+    const inglesGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        ni.nivel,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
+        )                                                                     AS porcentaje
+      FROM egresados e
+      LEFT JOIN generos       g  ON e.genero_id       = g.id_genero
+      LEFT JOIN niveles_ingles ni ON e.nivel_ingles_id = ni.id_nivel
+      LEFT JOIN carreras      c  ON e.carrera_id      = c.id_carrera
+      ${where}
+      GROUP BY g.genero, ni.nivel
+      ORDER BY g.genero, total DESC
+    `, params);
+
+    // 16. Satisfacción académica por género
+    const satisfaccionGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        ROUND(AVG(e.satisfaccion_formacion), 2)                               AS promedio,
+        COUNT(*)                                                              AS total,
+        SUM(e.satisfaccion_formacion = 5)                                     AS muy_satisfecho,
+        SUM(e.satisfaccion_formacion = 4)                                     AS satisfecho,
+        SUM(e.satisfaccion_formacion = 3)                                     AS neutral,
+        SUM(e.satisfaccion_formacion = 2)                                     AS insatisfecho,
+        SUM(e.satisfaccion_formacion = 1)                                     AS muy_insatisfecho
+      FROM egresados e
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY g.genero
+    `, params);
+
+    // 17. Habilidades que consideran les faltaron por género
+    const habilidadesGenero = await this.dataSource.query(`
+      SELECT
+        g.genero,
+        h.habilidad,
+        COUNT(*)                                                              AS total,
+        ROUND(
+          COUNT(*) * 100.0
+          / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
+        )                                                                     AS porcentaje
+      FROM egresado_habilidades eh
+      JOIN egresados   e ON eh.id_egresado  = e.id_egresado
+      JOIN habilidades h ON eh.id_habilidad = h.id_habilidad
+      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY g.genero, h.habilidad
+      ORDER BY g.genero, total DESC
+    `, params);
+
+    return {
+      kpisGenero,
+      proporcionCarreraGenero,
+      egresoAnioGenero,
+      composicionCarreraGenero,
+      empleabilidadGenero,
+      sectorLaboralGenero,
+      coincidenciaLaboralGenero,
+      tiempoEmpleoGenero,
+      geografiaGenero,
+      topCiudadesGenero,
+      titulacionGenero,
+      titulacionAnioGenero,
+      posgradoGenero,
+      posgradoTipoGenero,
+      inglesGenero,
+      satisfaccionGenero,
+      habilidadesGenero,
+    };
   }
 }
