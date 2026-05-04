@@ -913,48 +913,52 @@ export class EgresadosService {
   }
 
   // VINCULACIÓN: egresados por colaboración
-  async getEgresadosPorColaboracion(colaboracion: string): Promise<any[]> {
+  async getEgresadosPorColaboracion(colaboracion: string, carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [colaboracion];
+    const conditions: string[] = [`col.descripcion = ?`];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
     return this.dataSource.query(`
-  SELECT
-    e.id_egresado,
-    e.nombre_completo,
-    e.correo,
-    e.telefono,
-    c.nombre_carrera,
-    g.genero
-  FROM egresado_colaboraciones ec
-  JOIN colaboraciones col ON ec.id_colaboracion = col.id_colaboracion
-  JOIN egresados e        ON ec.id_egresado      = e.id_egresado
-  LEFT JOIN carreras c    ON e.carrera_id         = c.id_carrera
-  LEFT JOIN generos g     ON e.genero_id          = g.id_genero
-  WHERE col.descripcion = ?
-  ORDER BY e.nombre_completo ASC
-`, [colaboracion]);
+    SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+           c.nombre_carrera, g.genero
+    FROM egresado_colaboraciones ec
+    JOIN colaboraciones col ON ec.id_colaboracion = col.id_colaboracion
+    JOIN egresados e        ON ec.id_egresado     = e.id_egresado
+    LEFT JOIN carreras c    ON e.carrera_id        = c.id_carrera
+    LEFT JOIN generos g     ON e.genero_id         = g.id_genero
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY e.nombre_completo ASC
+  `, params);
   }
 
   // VINCULACIÓN: egresados por habilidad a reforzar
-  async getEgresadosPorHabilidad(habilidad: string): Promise<any[]> {
+  async getEgresadosPorHabilidad(habilidad: string, carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [habilidad];
+    const conditions: string[] = [`h.habilidad = ?`];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
     return this.dataSource.query(`
-  SELECT
-    e.id_egresado,
-    e.nombre_completo,
-    e.correo,
-    e.telefono,
-    c.nombre_carrera,
-    g.genero
-  FROM egresado_habilidades eh
-  JOIN habilidades h      ON eh.id_habilidad = h.id_habilidad
-  JOIN egresados e        ON eh.id_egresado  = e.id_egresado
-  LEFT JOIN carreras c    ON e.carrera_id    = c.id_carrera
-  LEFT JOIN generos g     ON e.genero_id     = g.id_genero
-  WHERE h.habilidad = ?
-  ORDER BY e.nombre_completo ASC
-`, [habilidad]);
+    SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+           c.nombre_carrera, g.genero
+    FROM egresado_habilidades eh
+    JOIN habilidades h      ON eh.id_habilidad = h.id_habilidad
+    JOIN egresados e        ON eh.id_egresado  = e.id_egresado
+    LEFT JOIN carreras c    ON e.carrera_id    = c.id_carrera
+    LEFT JOIN generos g     ON e.genero_id     = g.id_genero
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY e.nombre_completo ASC
+  `, params);
   }
 
   // VINCULACIÓN: egresados por tipo de autorización
   async getEgresadosPorAutorizacion(
     tipo: 'estadisticas' | 'contacto' | 'eventos',
+    carrera?: string,
+    anio?: number,
   ): Promise<any[]> {
     const columna = {
       estadisticas: 'aut.autorizo_estadisticas',
@@ -962,38 +966,73 @@ export class EgresadosService {
       eventos: 'aut.autorizo_eventos',
     }[tipo];
 
+    const params: any[] = [];
+    const conditions: string[] = [`${columna} = 1`];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
     return this.dataSource.query(`
-  SELECT
-    e.id_egresado,
-    e.nombre_completo,
-    e.correo,
-    e.telefono,
-    c.nombre_carrera,
-    g.genero
-  FROM autorizaciones aut
-  JOIN egresados e     ON aut.id_egresado = e.id_egresado
-  LEFT JOIN carreras c ON e.carrera_id    = c.id_carrera
-  LEFT JOIN generos g  ON e.genero_id     = g.id_genero
-  WHERE ${columna} = 1
-  ORDER BY e.nombre_completo ASC
-`);
+    SELECT
+      e.id_egresado,
+      e.nombre_completo,
+      e.correo,
+      e.telefono,
+      c.nombre_carrera,
+      g.genero
+    FROM autorizaciones aut
+    JOIN egresados  e ON aut.id_egresado = e.id_egresado
+    LEFT JOIN carreras c ON e.carrera_id  = c.id_carrera
+    LEFT JOIN generos  g ON e.genero_id   = g.id_genero
+    ${where}
+    ORDER BY e.nombre_completo ASC
+  `, params);
   }
 
   // VINCULACIÓN: totales por colaboración (incluye "Otro")
-  async getTotalesColaboraciones(): Promise<any[]> {
+  async getTotalesColaboraciones(carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [];
+    const joins: string[] = [
+      'LEFT JOIN egresados e        ON ec.id_egresado     = e.id_egresado',
+      'LEFT JOIN carreras  c        ON e.carrera_id       = c.id_carrera',
+    ];
+    const conditions: string[] = [];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
     const fijas = await this.dataSource.query(`
     SELECT
       col.descripcion,
       COUNT(ec.id_egresado) AS total
     FROM colaboraciones col
     LEFT JOIN egresado_colaboraciones ec ON col.id_colaboracion = ec.id_colaboracion
+    ${joins.join('\n')}
+    ${where}
     GROUP BY col.id_colaboracion, col.descripcion
     ORDER BY total DESC
-  `);
+  `, params);
+
+    const otroParams: any[] = [];
+    const otroJoins = [
+      'LEFT JOIN egresados e ON co.id_egresado = e.id_egresado',
+      'LEFT JOIN carreras  c ON e.carrera_id   = c.id_carrera',
+    ];
+    const otroConditions: string[] = [];
+    if (carrera) { otroConditions.push(`c.nombre_carrera = ?`); otroParams.push(carrera); }
+    if (anio) { otroConditions.push(`e.anio_egreso = ?`); otroParams.push(anio); }
+    const otroWhere = otroConditions.length ? `WHERE ${otroConditions.join(' AND ')}` : '';
 
     const [otro] = await this.dataSource.query(`
-    SELECT COUNT(*) AS total FROM colaboracion_otro
-  `);
+    SELECT COUNT(*) AS total
+    FROM colaboracion_otro co
+    ${otroJoins.join('\n')}
+    ${otroWhere}
+  `, otroParams);
 
     return [
       ...fijas,
@@ -1002,20 +1041,47 @@ export class EgresadosService {
   }
 
   // VINCULACIÓN: totales por habilidad (incluye "Otro")
-  async getTotalesHabilidades(): Promise<any[]> {
+  async getTotalesHabilidades(carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [];
+    const joins: string[] = [
+      'LEFT JOIN egresados e ON eh.id_egresado  = e.id_egresado',
+      'LEFT JOIN carreras  c ON e.carrera_id    = c.id_carrera',
+    ];
+    const conditions: string[] = [];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
     const fijas = await this.dataSource.query(`
     SELECT
       h.habilidad,
       COUNT(eh.id_egresado) AS total
     FROM habilidades h
     LEFT JOIN egresado_habilidades eh ON h.id_habilidad = eh.id_habilidad
+    ${joins.join('\n')}
+    ${where}
     GROUP BY h.id_habilidad, h.habilidad
     ORDER BY total DESC
-  `);
+  `, params);
+
+    const otroParams: any[] = [];
+    const otroJoins = [
+      'LEFT JOIN egresados e ON ho.id_egresado = e.id_egresado',
+      'LEFT JOIN carreras  c ON e.carrera_id   = c.id_carrera',
+    ];
+    const otroConditions: string[] = [];
+    if (carrera) { otroConditions.push(`c.nombre_carrera = ?`); otroParams.push(carrera); }
+    if (anio) { otroConditions.push(`e.anio_egreso = ?`); otroParams.push(anio); }
+    const otroWhere = otroConditions.length ? `WHERE ${otroConditions.join(' AND ')}` : '';
 
     const [otro] = await this.dataSource.query(`
-    SELECT COUNT(*) AS total FROM habilidades_otro
-  `);
+    SELECT COUNT(*) AS total
+    FROM habilidades_otro ho
+    ${otroJoins.join('\n')}
+    ${otroWhere}
+  `, otroParams);
 
     return [
       ...fijas,
@@ -1024,54 +1090,72 @@ export class EgresadosService {
   }
 
   // VINCULACIÓN: egresados con colaboración "Otro"
-  async getEgresadosColaboracionOtro(): Promise<any[]> {
+  async getEgresadosColaboracionOtro(carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [];
+    const conditions: string[] = [];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
     return this.dataSource.query(`
-    SELECT
-      e.id_egresado,
-      e.nombre_completo,
-      e.correo,
-      e.telefono,
-      c.nombre_carrera,
-      g.genero,
-      co.descripcion AS descripcion_otro
+    SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+           c.nombre_carrera, g.genero, co.descripcion AS descripcion_otro
     FROM colaboracion_otro co
     JOIN egresados e     ON co.id_egresado = e.id_egresado
     LEFT JOIN carreras c ON e.carrera_id   = c.id_carrera
     LEFT JOIN generos g  ON e.genero_id    = g.id_genero
+    ${where}
     ORDER BY e.nombre_completo ASC
-  `);
+  `, params);
   }
 
   // VINCULACIÓN: egresados con habilidad "Otro"
-  async getEgresadosHabilidadOtro(): Promise<any[]> {
+  async getEgresadosHabilidadOtro(carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [];
+    const conditions: string[] = [];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
     return this.dataSource.query(`
-    SELECT
-      e.id_egresado,
-      e.nombre_completo,
-      e.correo,
-      e.telefono,
-      c.nombre_carrera,
-      g.genero,
-      ho.descripcion AS descripcion_otro
+    SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+           c.nombre_carrera, g.genero, ho.descripcion AS descripcion_otro
     FROM habilidades_otro ho
     JOIN egresados e     ON ho.id_egresado = e.id_egresado
     LEFT JOIN carreras c ON e.carrera_id   = c.id_carrera
     LEFT JOIN generos g  ON e.genero_id    = g.id_genero
+    ${where}
     ORDER BY e.nombre_completo ASC
-  `);
+  `, params);
   }
 
   // VINCULACIÓN: distribución real de satisfacción (conteo por nivel 1-5)
-  async getDistribucionSatisfaccion(): Promise<any[]> {
+  async getDistribucionSatisfaccion(carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [];
+    const conditions: string[] = ['satisfaccion_formacion IS NOT NULL'];
+
+    if (carrera) { conditions.push(`c.nombre_carrera = ?`); params.push(carrera); }
+    if (anio) { conditions.push(`e.anio_egreso = ?`); params.push(anio); }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const join = (carrera || anio)
+      ? `LEFT JOIN carreras c ON e.carrera_id = c.id_carrera`
+      : '';
+
     return this.dataSource.query(`
     SELECT
-      satisfaccion_formacion AS nivel,
-      COUNT(*)               AS total
-    FROM egresados
-    WHERE satisfaccion_formacion IS NOT NULL
-    GROUP BY satisfaccion_formacion
-    ORDER BY satisfaccion_formacion ASC
-  `);
+      e.satisfaccion_formacion AS nivel,
+      COUNT(*)                 AS total
+    FROM egresados e
+    ${join}
+    ${where}
+    GROUP BY e.satisfaccion_formacion
+    ORDER BY e.satisfaccion_formacion ASC
+  `, params);
   }
 
   // ── NORMALIZACIÓN DE GÉNERO ───────────────────────────────────────────────

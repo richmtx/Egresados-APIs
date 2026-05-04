@@ -64,45 +64,84 @@ export class EgresadosController {
   }
 
   @Get('vinculacion/colaboracion')
-  getEgresadosPorColaboracion(@Query('tipo') tipo: string) {
-    return this.egresadosService.getEgresadosPorColaboracion(tipo);
+  getEgresadosPorColaboracion(
+    @Query('tipo') tipo: string,
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getEgresadosPorColaboracion(
+      tipo,
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Get('vinculacion/habilidad')
-  getEgresadosPorHabilidad(@Query('tipo') tipo: string) {
-    return this.egresadosService.getEgresadosPorHabilidad(tipo);
-  }
-
-  @Get('vinculacion/autorizacion')
-  getEgresadosPorAutorizacion(
-    @Query('tipo') tipo: 'estadisticas' | 'contacto' | 'eventos',
+  getEgresadosPorHabilidad(
+    @Query('tipo') tipo: string,
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getEgresadosPorAutorizacion(tipo);
+    return this.egresadosService.getEgresadosPorHabilidad(
+      tipo,
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Get('vinculacion/totales-colaboraciones')
-  getTotalesColaboraciones() {
-    return this.egresadosService.getTotalesColaboraciones();
+  getTotalesColaboraciones(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getTotalesColaboraciones(
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Get('vinculacion/totales-habilidades')
-  getTotalesHabilidades() {
-    return this.egresadosService.getTotalesHabilidades();
+  getTotalesHabilidades(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getTotalesHabilidades(
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Get('vinculacion/colaboracion-otro')
-  getEgresadosColaboracionOtro() {
-    return this.egresadosService.getEgresadosColaboracionOtro();
+  getEgresadosColaboracionOtro(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getEgresadosColaboracionOtro(
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Get('vinculacion/habilidad-otro')
-  getEgresadosHabilidadOtro() {
-    return this.egresadosService.getEgresadosHabilidadOtro();
+  getEgresadosHabilidadOtro(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getEgresadosHabilidadOtro(
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Get('vinculacion/distribucion-satisfaccion')
-  getDistribucionSatisfaccion() {
-    return this.egresadosService.getDistribucionSatisfaccion();
+  getDistribucionSatisfaccion(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getDistribucionSatisfaccion(
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Get('estadisticas/genero')
@@ -111,6 +150,19 @@ export class EgresadosController {
     @Query('anio') anio?: number,
   ) {
     return this.egresadosService.getEstadisticasGenero(carrera, anio ? +anio : undefined);
+  }
+
+  @Get('vinculacion/autorizacion')
+  getEgresadosPorAutorizacion(
+    @Query('tipo') tipo: 'estadisticas' | 'contacto' | 'eventos',
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getEgresadosPorAutorizacion(
+      tipo,
+      carrera,
+      anio ? +anio : undefined,
+    );
   }
 
   @Delete(':id')
