@@ -1532,4 +1532,178 @@ export class EgresadosService {
       habilidadesGenero,
     };
   }
+
+  // COMPARATIVAS — múltiples carreras en una sola llamada
+  async getComparativas(carreras: string[]): Promise<any> {
+    if (!carreras || carreras.length < 2 || carreras.length > 3) {
+      throw new BadRequestException('Debes seleccionar entre 2 y 3 carreras.');
+    }
+
+    // Genera placeholders: ?, ?, ?
+    const placeholders = carreras.map(() => '?').join(', ');
+
+    // 1. Empleo por carrera
+    const empleo = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      COUNT(*)                                                             AS total,
+      SUM(sl.situacion != 'Desempleado')                                   AS empleados,
+      SUM(sl.situacion  = 'Desempleado')                                   AS desempleados,
+      ROUND(SUM(sl.situacion != 'Desempleado') * 100.0 / COUNT(*), 1)      AS pct_empleados
+    FROM egresados e
+    LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
+    LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera
+    ORDER BY pct_empleados DESC
+  `, carreras);
+
+    // 2. Titulación por carrera
+    const titulacion = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      COUNT(*)                                                                    AS total,
+      SUM(e.estatus_titulacion = 'Titulado')                                      AS titulados,
+      SUM(e.estatus_titulacion = 'En trámite')                                    AS en_tramite,
+      SUM(e.estatus_titulacion = 'No titulado')                                   AS no_titulados,
+      ROUND(SUM(e.estatus_titulacion = 'Titulado')    * 100.0 / COUNT(*), 1)      AS pct_titulados,
+      ROUND(SUM(e.estatus_titulacion = 'En trámite')  * 100.0 / COUNT(*), 1)      AS pct_en_tramite,
+      ROUND(SUM(e.estatus_titulacion = 'No titulado') * 100.0 / COUNT(*), 1)      AS pct_no_titulados
+    FROM egresados e
+    LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera
+    ORDER BY pct_titulados DESC
+  `, carreras);
+
+    // 3. Sector laboral × carrera  ← el gap que te faltaba
+    const sectorCarrera = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      sl.situacion                                                                AS sector,
+      COUNT(*)                                                                    AS total,
+      ROUND(
+        COUNT(*) * 100.0
+        / SUM(COUNT(*)) OVER (PARTITION BY c.nombre_carrera), 1
+      )                                                                           AS porcentaje
+    FROM egresados e
+    LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
+    LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera, sl.situacion
+    ORDER BY c.nombre_carrera, total DESC
+  `, carreras);
+
+    // 4. Nivel de inglés × carrera
+    const ingles = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      ni.nivel,
+      COUNT(*)                                                                    AS total,
+      ROUND(
+        COUNT(*) * 100.0
+        / SUM(COUNT(*)) OVER (PARTITION BY c.nombre_carrera), 1
+      )                                                                           AS porcentaje
+    FROM egresados e
+    LEFT JOIN carreras      c  ON e.carrera_id       = c.id_carrera
+    LEFT JOIN niveles_ingles ni ON e.nivel_ingles_id = ni.id_nivel
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera, ni.nivel
+    ORDER BY c.nombre_carrera, total DESC
+  `, carreras);
+
+    // 5. Satisfacción de formación por carrera
+    const satisfaccion = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      ROUND(AVG(e.satisfaccion_formacion), 2)                                     AS promedio,
+      ROUND(AVG(e.satisfaccion_formacion) * 20, 1)                                AS promedio_pct,
+      COUNT(*)                                                                    AS total,
+      SUM(e.satisfaccion_formacion = 5)                                           AS muy_satisfecho,
+      SUM(e.satisfaccion_formacion = 4)                                           AS satisfecho,
+      SUM(e.satisfaccion_formacion = 3)                                           AS neutral,
+      SUM(e.satisfaccion_formacion = 2)                                           AS insatisfecho,
+      SUM(e.satisfaccion_formacion = 1)                                           AS muy_insatisfecho
+    FROM egresados e
+    LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera
+    ORDER BY promedio DESC
+  `, carreras);
+
+    // 6. Migración × carrera  ← consolidado desde getDistribucionGeografica
+    const migracion = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      COUNT(*)                                                                    AS total,
+      SUM(
+        e.ciudad_trabajo LIKE 'Durango%'
+        OR e.ciudad_trabajo IS NULL
+        OR e.ciudad_trabajo = ''
+      )                                                                           AS en_durango,
+      SUM(
+        e.ciudad_trabajo IS NOT NULL
+        AND e.ciudad_trabajo != ''
+        AND e.ciudad_trabajo NOT LIKE 'Durango%'
+        AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) = 'México'
+      )                                                                           AS fuera_durango_mexico,
+      SUM(
+        e.ciudad_trabajo IS NOT NULL
+        AND e.ciudad_trabajo != ''
+        AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+      )                                                                           AS en_extranjero,
+      ROUND(
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND e.ciudad_trabajo NOT LIKE 'Durango%'
+        ) * 100.0 / COUNT(*), 1
+      )                                                                           AS pct_fuera_durango,
+      ROUND(
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND TRIM(SUBSTRING_INDEX(e.ciudad_trabajo, ',', -1)) != 'México'
+        ) * 100.0 / COUNT(*), 1
+      )                                                                           AS pct_extranjero
+    FROM egresados e
+    LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera
+    ORDER BY pct_fuera_durango DESC
+  `, carreras);
+
+    // 7. Resumen global — un objeto por carrera con todos los KPIs clave
+    const resumen = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      COUNT(*)                                                                    AS total,
+      ROUND(SUM(sl.situacion != 'Desempleado') * 100.0 / COUNT(*), 1)            AS pct_empleados,
+      ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1)        AS pct_titulados,
+      ROUND(AVG(e.satisfaccion_formacion), 2)                                     AS satisfaccion_promedio,
+      ROUND(
+        SUM(
+          e.ciudad_trabajo IS NOT NULL
+          AND e.ciudad_trabajo != ''
+          AND e.ciudad_trabajo NOT LIKE 'Durango%'
+        ) * 100.0 / COUNT(*), 1
+      )                                                                           AS pct_fuera_durango
+    FROM egresados e
+    LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
+    LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera
+  `, carreras);
+
+    return {
+      carreras,
+      resumen,
+      empleo,
+      titulacion,
+      sectorCarrera,
+      ingles,
+      satisfaccion,
+      migracion,
+    };
+  }
 }

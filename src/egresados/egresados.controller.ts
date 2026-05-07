@@ -165,6 +165,15 @@ export class EgresadosController {
     );
   }
 
+  @Get('comparativas')
+  getComparativas(@Query('carreras') carrerasParam: string) {
+    // Recibe: GET /egresados/comparativas?carreras=ISC,TICs,Ingeniería Informática
+    const carreras = carrerasParam
+      ? carrerasParam.split(',').map(c => c.trim()).filter(Boolean)
+      : [];
+    return this.egresadosService.getComparativas(carreras);
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.egresadosService.remove(id);
