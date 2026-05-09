@@ -125,8 +125,11 @@ export class EgresadosService {
     });
   }
 
-  // ETAPA 1
-  async crearEtapa1(dto: CreateEgresadoEtapa1Dto): Promise<{ id_egresado: number; mensaje: string }> {
+  // Crear Etapa 1
+  async crearEtapa1(
+    dto: CreateEgresadoEtapa1Dto,
+    fotoUrl: string | null = null,
+  ): Promise<{ id_egresado: number; mensaje: string }> {
 
     const genero_id = await this.resolveId('generos', 'id_genero', 'genero', dto.genero);
     const carrera_id = await this.resolveId('carreras', 'id_carrera', 'nombre_carrera', dto.carrera);
@@ -141,8 +144,9 @@ export class EgresadosService {
        carrera_id, anio_egreso, estatus_titulacion, certificacion_vigente_id,
        nivel_ingles_id, situacion_laboral_id, empresa, antiguedad_empleo_id,
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
-       numero_control, linkedin, puesto_trabajo, coincidencia_laboral_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', '', 1)`,
+       numero_control, linkedin, puesto_trabajo, coincidencia_laboral_id,
+       foto_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', '', 1, ?)`,
       [
         dto.nombre_completo,
         genero_id,
@@ -159,6 +163,7 @@ export class EgresadosService {
         antiguedad_empleo_id,
         dto.ciudad_trabajo || '',
         dto.satisfaccion_formacion,
+        fotoUrl,           // ← nuevo: null si no hay foto
       ],
     );
 
@@ -315,7 +320,7 @@ export class EgresadosService {
         e.id_egresado, e.nombre_completo, e.correo, e.telefono,
         e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
         e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
-        e.estatus_titulacion, e.satisfaccion_formacion,
+        e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
         g.genero, c.nombre_carrera,
         ni.nivel     AS nivel_ingles,
         ae.rango     AS antiguedad_empleo,
@@ -366,7 +371,7 @@ export class EgresadosService {
         e.id_egresado, e.nombre_completo, e.correo, e.telefono,
         e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
         e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
-        e.estatus_titulacion, e.satisfaccion_formacion,
+        e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
         g.genero, c.nombre_carrera,
         ni.nivel        AS nivel_ingles,
         ae.rango        AS antiguedad_empleo,
@@ -922,7 +927,7 @@ export class EgresadosService {
 
     return this.dataSource.query(`
     SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-           c.nombre_carrera, g.genero
+       c.nombre_carrera, g.genero, e.foto_url
     FROM egresado_colaboraciones ec
     JOIN colaboraciones col ON ec.id_colaboracion = col.id_colaboracion
     JOIN egresados e        ON ec.id_egresado     = e.id_egresado
@@ -943,7 +948,7 @@ export class EgresadosService {
 
     return this.dataSource.query(`
     SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-           c.nombre_carrera, g.genero
+          c.nombre_carrera, g.genero, e.foto_url
     FROM egresado_habilidades eh
     JOIN habilidades h      ON eh.id_habilidad = h.id_habilidad
     JOIN egresados e        ON eh.id_egresado  = e.id_egresado
@@ -975,13 +980,8 @@ export class EgresadosService {
     const where = `WHERE ${conditions.join(' AND ')}`;
 
     return this.dataSource.query(`
-    SELECT
-      e.id_egresado,
-      e.nombre_completo,
-      e.correo,
-      e.telefono,
-      c.nombre_carrera,
-      g.genero
+    SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+        c.nombre_carrera, g.genero, e.foto_url
     FROM autorizaciones aut
     JOIN egresados  e ON aut.id_egresado = e.id_egresado
     LEFT JOIN carreras c ON e.carrera_id  = c.id_carrera
@@ -1101,7 +1101,7 @@ export class EgresadosService {
 
     return this.dataSource.query(`
     SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-           c.nombre_carrera, g.genero, co.descripcion AS descripcion_otro
+           c.nombre_carrera, g.genero, e.foto_url, co.descripcion AS descripcion_otro
     FROM colaboracion_otro co
     JOIN egresados e     ON co.id_egresado = e.id_egresado
     LEFT JOIN carreras c ON e.carrera_id   = c.id_carrera
@@ -1123,7 +1123,7 @@ export class EgresadosService {
 
     return this.dataSource.query(`
     SELECT e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-           c.nombre_carrera, g.genero, ho.descripcion AS descripcion_otro
+           c.nombre_carrera, g.genero, e.foto_url, ho.descripcion AS descripcion_otro
     FROM habilidades_otro ho
     JOIN egresados e     ON ho.id_egresado = e.id_egresado
     LEFT JOIN carreras c ON e.carrera_id   = c.id_carrera

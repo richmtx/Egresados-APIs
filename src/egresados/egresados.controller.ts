@@ -1,18 +1,96 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, ParseIntPipe, Delete, } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query,
+  ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException, } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+
 import { EgresadosService } from './egresados.service';
 import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
+
+// ── Carpeta destino de las fotos ─────────────────────────────────────────────
+const FOTOS_DIR = join(process.cwd(), 'uploads', 'fotos');
+
+// Crea la carpeta si no existe al arrancar
+if (!existsSync(FOTOS_DIR)) {
+  mkdirSync(FOTOS_DIR, { recursive: true });
+}
+
+// Configuración de Multer
+const multerFotoOptions = {
+  storage: diskStorage({
+    destination: (_req, _file, cb) => cb(null, FOTOS_DIR),
+    filename: (_req, file, cb) => {
+      // Nombre: timestamp-random + extensión original
+      const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      cb(null, `${unique}${extname(file.originalname)}`);
+    },
+  }),
+  limits: {
+    fileSize: 2 * 1024 * 1024, // 2 MB
+  },
+  fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestException('Solo se permiten imágenes JPG, PNG o WEBP.'), false);
+    }
+  },
+};
 
 @Controller('egresados')
 export class EgresadosController {
 
   constructor(private readonly egresadosService: EgresadosService) { }
 
+  // ── POST /egresados/etapa1 ────────────────────────────────────────────────
+  // Acepta tanto JSON puro como multipart/form-data (cuando hay foto).
+  // En multipart: campo "data" = JSON del DTO, campo "foto" = archivo.
   @Post('etapa1')
-  crearEtapa1(@Body() dto: CreateEgresadoEtapa1Dto) {
-    return this.egresadosService.crearEtapa1(dto);
+  @UseInterceptors(FileInterceptor('foto', multerFotoOptions))
+  async crearEtapa1(
+    @UploadedFile() foto: Express.Multer.File | undefined,
+    @Body('data') dataRaw: string | undefined,
+    @Body() bodyDirecto: any,
+  ) {
+    let dto: CreateEgresadoEtapa1Dto;
+
+    if (dataRaw) {
+      // Viene como multipart/form-data → parsear el campo "data"
+      let parsed: any;
+      try {
+        parsed = JSON.parse(dataRaw);
+      } catch {
+        throw new BadRequestException('El campo "data" no es un JSON válido.');
+      }
+
+      dto = plainToInstance(CreateEgresadoEtapa1Dto, parsed);
+      const errores = await validate(dto);
+      if (errores.length > 0) {
+        throw new BadRequestException(errores);
+      }
+    } else {
+      // Viene como application/json normal (sin foto)
+      dto = plainToInstance(CreateEgresadoEtapa1Dto, bodyDirecto);
+      const errores = await validate(dto);
+      if (errores.length > 0) {
+        throw new BadRequestException(errores);
+      }
+    }
+
+    // Ruta relativa para guardar en BD (o null si no hay foto)
+    const fotoUrl = foto
+      ? `uploads/fotos/${foto.filename}`
+      : null;
+
+    return this.egresadosService.crearEtapa1(dto, fotoUrl);
   }
 
+  // ── PATCH /egresados/etapa2/:id ───────────────────────────────────────────
   @Patch('etapa2/:id')
   completarEtapa2(
     @Param('id', ParseIntPipe) id: number,
@@ -21,6 +99,7 @@ export class EgresadosController {
     return this.egresadosService.completarEtapa2(id, dto);
   }
 
+  // ── GET /egresados/buscar ─────────────────────────────────────────────────
   @Get('buscar')
   buscarPorCorreo(@Query('correo') correo: string) {
     return this.egresadosService.buscarPorCorreo(correo);
@@ -167,7 +246,6 @@ export class EgresadosController {
 
   @Get('comparativas')
   getComparativas(@Query('carreras') carrerasParam: string) {
-    // Recibe: GET /egresados/comparativas?carreras=ISC,TICs,Ingeniería Informática
     const carreras = carrerasParam
       ? carrerasParam.split(',').map(c => c.trim()).filter(Boolean)
       : [];
