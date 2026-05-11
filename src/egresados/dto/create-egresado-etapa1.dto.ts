@@ -1,5 +1,8 @@
-import { IsString, IsNumber, IsBoolean, IsEmail, IsNotEmpty, ValidateNested, Min, Max, } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsString, IsNumber, IsBoolean, IsEmail, IsNotEmpty,
+  IsOptional, ValidateNested, Min, Max
+} from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export class AutorizacionesDto {
   @IsBoolean() estadisticas: boolean;
@@ -19,9 +22,23 @@ export class CreateEgresadoEtapa1Dto {
   @IsString() @IsNotEmpty() certificacion_vigente: string;
   @IsString() @IsNotEmpty() nivel_ingles: string;
   @IsString() @IsNotEmpty() situacion_laboral: string;
-  @IsString() empresa: string;
-  @IsString() @IsNotEmpty() antiguedad_empleo: string;
-  @IsString() ciudad_trabajo: string;
+
+  // Campos laborales opcionales
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value ?? '')
+  empresa?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value ?? '')
+  antiguedad_empleo?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value ?? '')
+  ciudad_trabajo?: string;
+
   @IsNumber() @Min(1) @Max(5) satisfaccion_formacion: number;
 
   @ValidateNested()
