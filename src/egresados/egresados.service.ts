@@ -63,9 +63,9 @@ export class EgresadosService {
       const cert: string = certs[0].nombre_certificacion;
       const nombreCorto = nombre.split(' ').slice(0, 2).join(' ');
       opciones.push({
-        tipo: 'nueva_encuesta',
-        titulo: 'Encuesta destacada — Certificación',
-        descripcion: `${nombreCorto} con certificación ${cert} completó la encuesta (${carrera}, ${anio})`,
+        tipo: 'nueva_encuesta_ubicacion',
+        titulo: 'Encuesta destacada — Ubicación',
+        descripcion: `${nombreCorto} trabajando actualmente en ${ciudadTrabajo} completó la encuesta (${carrera}, ${anio})`,
       });
     }
 
