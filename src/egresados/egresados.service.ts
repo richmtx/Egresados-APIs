@@ -201,24 +201,6 @@ export class EgresadosService {
       });
     }
 
-    const totalRows = await this.dataSource.query(
-      `SELECT COUNT(*) AS total FROM egresados`
-    );
-    const total: number = parseInt(totalRows[0].total, 10);
-
-    if (total % 5 === 0) {
-      await this.generarNotificacionDestacada(
-        id_egresado,
-        dto.nombre_completo,
-        dto.carrera,
-        dto.anio_egreso,
-        dto.ciudad_trabajo || '',
-        dto.ciudad_residencia,
-        dto.autorizaciones.contacto,
-        dto.autorizaciones.eventos,
-      );
-    }
-
     return { id_egresado, mensaje: 'Etapa 1 guardada correctamente.' };
   }
 
@@ -239,11 +221,11 @@ export class EgresadosService {
 
     await this.dataSource.query(
       `UPDATE egresados
-         SET numero_control          = ?,
-             linkedin                = ?,
-             puesto_trabajo          = ?,
-             coincidencia_laboral_id = ?
-       WHERE id_egresado = ?`,
+       SET numero_control          = ?,
+           linkedin                = ?,
+           puesto_trabajo          = ?,
+           coincidencia_laboral_id = ?
+     WHERE id_egresado = ?`,
       [
         dto.numero_control,
         dto.linkedin || '',
@@ -298,9 +280,34 @@ export class EgresadosService {
       );
     }
 
+    // Notificación destacada
+    const egresadoRow = await this.dataSource.query(
+      `SELECT e.nombre_completo, c.nombre_carrera, e.anio_egreso,
+            e.ciudad_trabajo, e.ciudad_residencia,
+            a.autorizo_contacto, a.autorizo_eventos
+     FROM egresados e
+     LEFT JOIN carreras       c ON e.carrera_id  = c.id_carrera
+     LEFT JOIN autorizaciones a ON e.id_egresado = a.id_egresado
+     WHERE e.id_egresado = ?`,
+      [id_egresado],
+    );
+
+    if (egresadoRow.length > 0) {
+      const eg = egresadoRow[0];
+      await this.generarNotificacionDestacada(
+        id_egresado,
+        eg.nombre_completo,
+        eg.nombre_carrera,
+        eg.anio_egreso,
+        eg.ciudad_trabajo || '',
+        eg.ciudad_residencia,
+        !!eg.autorizo_contacto,
+        !!eg.autorizo_eventos,
+      );
+    }
+
     return { mensaje: 'Etapa 2 completada. Registro finalizado.' };
   }
-
 
   // BUSCAR POR CORREO
   async buscarPorCorreo(correo: string): Promise<{ id_egresado: number } | null> {
