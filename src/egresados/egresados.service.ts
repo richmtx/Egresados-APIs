@@ -1715,4 +1715,69 @@ export class EgresadosService {
       migracion,
     };
   }
+
+  // DIRECTORIO PÚBLICO — solo campos no confidenciales
+  async getDirectorioPublico(carrera?: string, anio?: number): Promise<any[]> {
+    const params: any[] = [];
+    const conditions: string[] = ['1=1'];
+
+    if (carrera) {
+      conditions.push(`c.nombre_carrera = ?`);
+      params.push(carrera);
+    }
+    if (anio) {
+      conditions.push(`e.anio_egreso = ?`);
+      params.push(anio);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const egresados = await this.dataSource.query(`
+    SELECT
+      e.id_egresado,
+      e.nombre_completo,
+      e.foto_url,
+      e.ciudad_residencia,
+      e.ciudad_trabajo,
+      e.empresa,
+      e.puesto_trabajo,
+      e.estatus_titulacion,
+      e.anio_egreso,
+      e.linkedin,
+      c.nombre_carrera,
+      g.genero,
+      ni.nivel       AS nivel_ingles,
+      sl.situacion   AS sector_trabajo,
+      ae.rango       AS antiguedad_empleo,
+      cl.nivel       AS coincidencia_laboral
+    FROM egresados e
+    LEFT JOIN carreras             c   ON e.carrera_id             = c.id_carrera
+    LEFT JOIN generos g ON e.genero_id = g.id_genero
+    LEFT JOIN niveles_ingles       ni  ON e.nivel_ingles_id        = ni.id_nivel
+    LEFT JOIN situacion_laboral    sl  ON e.situacion_laboral_id   = sl.id_situacion
+    LEFT JOIN antiguedad_empleo    ae  ON e.antiguedad_empleo_id   = ae.id_antiguedad
+    LEFT JOIN coincidencia_laboral cl  ON e.coincidencia_laboral_id = cl.id_coincidencia
+    ${where}
+    ORDER BY e.nombre_completo ASC
+  `, params);
+
+    // Para cada egresado traer sus certificaciones
+    for (const eg of egresados) {
+      const certs = await this.dataSource.query(
+        `SELECT nombre_certificacion FROM certificaciones WHERE id_egresado = ?`,
+        [eg.id_egresado],
+      );
+      const colabs = await this.dataSource.query(`
+      SELECT col.descripcion
+      FROM egresado_colaboraciones ec
+      JOIN colaboraciones col ON ec.id_colaboracion = col.id_colaboracion
+      WHERE ec.id_egresado = ?
+    `, [eg.id_egresado]);
+
+      eg.certificaciones = certs.map((r: any) => r.nombre_certificacion);
+      eg.interes_colaborar = colabs.map((r: any) => r.descripcion);
+    }
+
+    return egresados;
+  }
 }

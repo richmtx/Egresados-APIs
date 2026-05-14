@@ -1,5 +1,7 @@
-import { Controller, Get, Post, Patch, Body, Param, Query,
-  ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException, } from '@nestjs/common';
+import {
+  Controller, Get, Post, Patch, Body, Param, Query,
+  ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -250,6 +252,17 @@ export class EgresadosController {
       ? carrerasParam.split(',').map(c => c.trim()).filter(Boolean)
       : [];
     return this.egresadosService.getComparativas(carreras);
+  }
+
+  @Get('directorio')
+  getDirectorioPublico(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getDirectorioPublico(
+      carrera,
+      anio ? parseInt(anio) : undefined,
+    );
   }
 
   @Delete(':id')
