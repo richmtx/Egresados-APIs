@@ -10,31 +10,26 @@ export class UsuariosController {
 
   constructor(private readonly usuariosService: UsuariosService) { }
 
-  // GET /usuarios
   @Get()
   async getUsuarios() {
     return this.usuariosService.findAll();
   }
 
-  // GET /usuarios/historial
   @Get('historial')
   async getHistorial(@Query('limite') limite?: string) {
     return this.usuariosService.getHistorial(limite ? parseInt(limite) : 50);
   }
 
-  // GET /usuarios/historial/:id
   @Get('historial/:id')
   async getHistorialUsuario(@Param('id', ParseIntPipe) id: number) {
     return this.usuariosService.getHistorialPorUsuario(id);
   }
 
-  // GET /usuarios/:id
   @Get(':id')
   async getUsuario(@Param('id', ParseIntPipe) id: number) {
     return this.usuariosService.findOne(id);
   }
 
-  // POST /usuarios/login
   @Post('login')
   async login(@Body() body: { usuario: string; contrasena: string }) {
     const user = await this.usuariosService.login(body.usuario, body.contrasena);
@@ -42,16 +37,23 @@ export class UsuariosController {
     return { mensaje: 'Login exitoso', usuario: user };
   }
 
-  // POST /usuarios/invitado  — solo admins pueden llamar esto
+  // POST /usuarios/invitado
   @Post('invitado')
   async crearInvitado(@Body() body: { nombre_completo: string; admin_id: number }) {
-    if (!body.nombre_completo || !body.admin_id) {
+    if (!body.nombre_completo || !body.admin_id)
       throw new BadRequestException('Faltan campos requeridos: nombre_completo, admin_id');
-    }
     return this.usuariosService.crearInvitado(body.nombre_completo, body.admin_id);
   }
 
-  // PUT /usuarios/:id/estado  — activo | inactivo
+  // POST /usuarios/admin
+  @Post('admin')
+  async crearAdmin(@Body() body: { nombre_completo: string; admin_id: number }) {
+    if (!body.nombre_completo || !body.admin_id)
+      throw new BadRequestException('Faltan campos requeridos: nombre_completo, admin_id');
+    return this.usuariosService.crearAdmin(body.nombre_completo, body.admin_id);
+  }
+
+  // PUT /usuarios/:id/estado
   @Put(':id/estado')
   async cambiarEstado(
     @Param('id', ParseIntPipe) id: number,
@@ -60,7 +62,7 @@ export class UsuariosController {
     return this.usuariosService.cambiarEstado(id, body.estado, body.admin_id);
   }
 
-  // DELETE /usuarios/:id
+  // DELETE /usuarios/:id — ahora puede eliminar admins también
   @Delete(':id')
   async deleteUsuario(
     @Param('id', ParseIntPipe) id: number,
