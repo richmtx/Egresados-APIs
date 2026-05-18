@@ -193,9 +193,9 @@ export class ExportService {
                     e.situacion_laboral ?? '—',
                     e.estatus_titulacion ?? '—',
                     e.nivel_ingles ?? '—',
-                    e.autorizo_contacto ? '✓' : '✗',
-                    e.autorizo_eventos ? '✓' : '✗',
-                    e.autorizo_estadisticas ? '✓' : '✗',
+                    e.autorizo_contacto ? 'Si' : 'No',
+                    e.autorizo_eventos ? 'Si' : 'No',
+                    e.autorizo_estadisticas ? 'Si' : 'No',
                 ];
 
                 // Columnas que permiten salto de línea (carrera=2, empresa=4, situacion=5)
@@ -204,7 +204,7 @@ export class ExportService {
                 x = 28;
                 valores.forEach((val, idx) => {
                     let color = NEGRO;
-                    if (idx >= 8) color = val === '✓' ? '#16A34A' : '#DC2626';
+                    if (idx >= 8) color = val === 'Si' ? '#16A34A' : '#DC2626';
 
                     const esMultilinea = MULTILINEA.has(idx);
 
@@ -379,14 +379,15 @@ export class ExportService {
 
     // ─── EXPORTAR PERFIL INDIVIDUAL ───────────────────────────────────────────
     async exportarPerfilPdf(id: number): Promise<Buffer> {
+        const fs = require('fs');
+        const path = require('path');
 
-        // Reutiliza la misma query que getPerfil del EgresadosService
         const rows = await this.dataSource.query(`
     SELECT
       e.nombre_completo, e.correo, e.telefono, e.ciudad_residencia,
       e.anio_egreso, e.empresa, e.ciudad_trabajo, e.numero_control,
       e.linkedin, e.puesto_trabajo, e.estatus_titulacion,
-      e.satisfaccion_formacion,
+      e.satisfaccion_formacion, e.foto_url,
       g.genero,
       c.nombre_carrera,
       ni.nivel        AS nivel_ingles,
@@ -412,7 +413,6 @@ export class ExportService {
         if (!rows.length) throw new Error(`Egresado ${id} no encontrado`);
         const e = rows[0];
 
-        // Sub-consultas
         const certificaciones = await this.dataSource.query(
             `SELECT nombre_certificacion FROM certificaciones WHERE id_egresado = ?`, [id],
         );
@@ -447,15 +447,29 @@ export class ExportService {
             year: 'numeric', month: 'long', day: 'numeric',
         });
 
-        // Helpers
         const VINO = '#6b1232';
         const GRIS = '#6B7280';
         const NEGRO = '#111827';
-        const W = 535; // ancho útil A4 portrait con márgenes 40
+        const W = 535;
+        const BANDA = 100; // altura banda superior (un poco más alta para foto)
 
         const authLabel = (val: any) => val ? 'Autorizado' : 'No autorizado';
         const authColor = (val: any) => val ? '#16A34A' : '#DC2626';
-        const estrellas = (n: number) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
+
+        // Estrellas con caracteres ASCII seguros para PDFKit
+        const estrellaStr = (n: number): string => {
+            const llenas = Math.round(n);
+            return '* '.repeat(llenas).trim();
+        };
+
+        // Cargar foto si existe
+        let fotoBuffer: Buffer | null = null;
+        if (e.foto_url) {
+            const fotoPath = path.join(process.cwd(), e.foto_url);
+            if (fs.existsSync(fotoPath)) {
+                fotoBuffer = fs.readFileSync(fotoPath);
+            }
+        }
 
         return new Promise((resolve, reject) => {
             const doc = new PDFDocument({
@@ -469,29 +483,46 @@ export class ExportService {
             doc.on('end', () => resolve(Buffer.concat(chunks)));
             doc.on('error', reject);
 
-            // Banda superior con color vino
-            doc.rect(0, 0, 595, 90).fill(VINO);
+            // ── Banda superior ───────────────────────────────────────────────────────
+            doc.rect(0, 0, 595, BANDA).fill(VINO);
+
+            // Foto de perfil (círculo recortado con clip)
+            const FOTO_SIZE = 60;
+            const FOTO_X = 40;
+            const FOTO_Y = 18;
+
+            if (fotoBuffer) {
+                // Clip circular
+                doc.save();
+                doc.circle(FOTO_X + FOTO_SIZE / 2, FOTO_Y + FOTO_SIZE / 2, FOTO_SIZE / 2).clip();
+                doc.image(fotoBuffer, FOTO_X, FOTO_Y, { width: FOTO_SIZE, height: FOTO_SIZE });
+                doc.restore();
+            }
+
+            // Texto desplazado a la derecha si hay foto
+            const textoX = fotoBuffer ? FOTO_X + FOTO_SIZE + 12 : 40;
+            const textoW = fotoBuffer ? W - FOTO_SIZE - 12 : W;
 
             // Nombre
-            doc.fontSize(17).fillColor('#FFFFFF').font('Helvetica-Bold')
-                .text(e.nombre_completo, 40, 24, { width: W });
+            doc.fontSize(15).fillColor('#FFFFFF').font('Helvetica-Bold')
+                .text(e.nombre_completo, textoX, 20, { width: textoW });
 
             // Empresa · Puesto
             const subLinea = [e.empresa, e.puesto_trabajo].filter(Boolean).join(' · ');
-            doc.fontSize(9).fillColor('rgba(255,255,255,0.80)').font('Helvetica')
-                .text(subLinea || '—', 40, 48, { width: W });
+            doc.fontSize(8.5).fillColor('rgba(255,255,255,0.85)').font('Helvetica')
+                .text(subLinea || '—', textoX, 44, { width: textoW });
 
-            // Chips: situación y titulación
+            // Situación | Titulación
             doc.fontSize(8).fillColor('#FFFFFF').font('Helvetica')
-                .text(`${e.situacion_laboral || '—'}   |   ${e.estatus_titulacion || '—'}`, 40, 66, { width: W });
+                .text(`${e.situacion_laboral || '—'}   |   ${e.estatus_titulacion || '—'}`, textoX, 62, { width: textoW });
 
-            // Header derecho: institución
-            doc.fontSize(7.5).fillColor('rgba(255,255,255,0.70)').font('Helvetica')
-                .text('Sistema de Seguimiento de Egresados', 40, 78, { align: 'right', width: W });
+            // Institución (esquina derecha)
+            doc.fontSize(7).fillColor('rgba(255,255,255,0.65)').font('Helvetica')
+                .text('Sistema de Seguimiento de Egresados', 40, 86, { align: 'right', width: W });
 
-            let y = 108;
+            // ── Contenido ────────────────────────────────────────────────────────────
+            let y = BANDA + 16;
 
-            // Función: sección con título
             const seccion = (titulo: string) => {
                 doc.fontSize(7).fillColor(VINO).font('Helvetica-Bold')
                     .text(titulo.toUpperCase(), 40, y, { width: W, characterSpacing: 0.8 });
@@ -501,7 +532,6 @@ export class ExportService {
                 y += 8;
             };
 
-            // Función: campo etiqueta + valor (dos columnas)
             const campo = (label: string, valor: string, col: 'left' | 'right' = 'left') => {
                 const xPos = col === 'left' ? 40 : 40 + W / 2 + 10;
                 const wCol = W / 2 - 10;
@@ -510,7 +540,6 @@ export class ExportService {
                     .text(valor || '—', xPos, y + 10, { width: wCol });
             };
 
-            // Función: campo ancho completo
             const campoFull = (label: string, valor: string) => {
                 doc.fontSize(7).fillColor(GRIS).font('Helvetica').text(label, 40, y, { width: W });
                 doc.fontSize(8.5).fillColor(NEGRO).font('Helvetica')
@@ -518,87 +547,89 @@ export class ExportService {
                 y += 28;
             };
 
-            // Función: fila de dos campos
             const filaDos = (l1: string, v1: string, l2: string, v2: string) => {
                 campo(l1, v1, 'left');
                 campo(l2, v2, 'right');
                 y += 28;
             };
 
-            // DATOS PERSONALES
+            // ── DATOS PERSONALES ─────────────────────────────────────────────────────
             seccion('Datos personales');
             filaDos('No. de control', e.numero_control || '—', 'Año de egreso', String(e.anio_egreso));
             campoFull('Correo electrónico', e.correo || '—');
             filaDos('Teléfono', e.telefono || '—', 'Ciudad de residencia', e.ciudad_residencia || '—');
-            if (e.linkedin) {
-                campoFull('LinkedIn', e.linkedin);
-            }
+            if (e.linkedin) campoFull('LinkedIn', e.linkedin);
             y += 4;
 
-            // DATOS ACADÉMICOS
+            // ── DATOS ACADÉMICOS ─────────────────────────────────────────────────────
             seccion('Datos académicos');
             campoFull('Carrera', e.nombre_carrera || '—');
             filaDos('Nivel de inglés', e.nivel_ingles || '—', 'Titulación', e.estatus_titulacion || '—');
 
-            // Estrellas satisfacción
-            doc.fontSize(7).fillColor(GRIS).font('Helvetica').text('Satisfacción con la formación', 40, y, { width: W });
-            doc.fontSize(11).fillColor('#F59E0B').font('Helvetica')
-                .text(estrellas(e.satisfaccion_formacion || 0), 40, y + 9, { width: 80 });
-            doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
-                .text(`${e.satisfaccion_formacion || 0} / 5`, 120, y + 11);
+            // Satisfacción — reemplazamos unicode por texto seguro
+            const nEstrellas = Math.round(e.satisfaccion_formacion || 0);
+            doc.fontSize(7).fillColor(GRIS).font('Helvetica')
+                .text('Satisfaccion con la formacion', 40, y, { width: W });
+            const estrellasTexto = estrellaStr(nEstrellas);
+            doc.fontSize(8).fillColor('#F59E0B').font('Helvetica-Bold')
+                .text(estrellasTexto, 40, y + 10, { width: 80, continued: true });
+            doc.fillColor(NEGRO).font('Helvetica')
+                .text(`  ${e.satisfaccion_formacion || 0} / 5`);
             y += 30;
             y += 4;
 
-            // CERTIFICACIONES
+            // ── CERTIFICACIONES ──────────────────────────────────────────────────────
             seccion('Certificaciones');
-            campoFull('¿Cuenta con certificación vigente?', e.certificacion_vigente || '—');
+            campoFull('Cuenta con certificacion vigente', e.certificacion_vigente || '—');
             if (todasCertificaciones.length > 0) {
-                doc.fontSize(7).fillColor(GRIS).font('Helvetica').text('Certificaciones obtenidas', 40, y, { width: W });
+                doc.fontSize(7).fillColor(GRIS).font('Helvetica')
+                    .text('Certificaciones obtenidas', 40, y, { width: W });
                 y += 12;
                 todasCertificaciones.forEach(cert => {
-                    doc.fontSize(8).fillColor(NEGRO).font('Helvetica').text(`• ${cert}`, 44, y, { width: W - 4 });
+                    doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
+                        .text(`- ${cert}`, 44, y, { width: W - 4 });
                     y += 13;
                 });
             }
             y += 4;
 
-            // SITUACIÓN LABORAL
-            seccion('Situación laboral');
+            // ── SITUACIÓN LABORAL ────────────────────────────────────────────────────
+            seccion('Situacion laboral');
             campoFull('Empresa', e.empresa || '—');
             campoFull('Puesto', e.puesto_trabajo || '—');
-            filaDos('Ciudad de trabajo', e.ciudad_trabajo || '—', 'Antigüedad', e.antiguedad_empleo || '—');
+            filaDos('Ciudad de trabajo', e.ciudad_trabajo || '—', 'Antiguedad', e.antiguedad_empleo || '—');
             campoFull('Coincidencia con carrera', e.coincidencia_laboral || '—');
             y += 4;
 
-            // HABILIDADES A REFORZAR
+            // ── HABILIDADES ──────────────────────────────────────────────────────────
             if (todasHabilidades.length > 0) {
                 seccion('Habilidades a reforzar');
                 todasHabilidades.forEach(hab => {
-                    doc.fontSize(8).fillColor(NEGRO).font('Helvetica').text(`• ${hab}`, 44, y, { width: W - 4 });
+                    doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
+                        .text(`- ${hab}`, 44, y, { width: W - 4 });
                     y += 13;
                 });
                 y += 4;
             }
 
-            // INTERÉS EN COLABORAR
+            // ── COLABORACIONES ───────────────────────────────────────────────────────
             if (todasColaboraciones.length > 0) {
-                seccion('Interés en colaborar');
+                seccion('Interes en colaborar');
                 todasColaboraciones.forEach(col => {
-                    doc.fontSize(8).fillColor(NEGRO).font('Helvetica').text(`• ${col}`, 44, y, { width: W - 4 });
+                    doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
+                        .text(`- ${col}`, 44, y, { width: W - 4 });
                     y += 13;
                 });
                 y += 4;
             }
 
-            // AUTORIZACIONES
+            // ── AUTORIZACIONES ───────────────────────────────────────────────────────
             seccion('Autorizaciones');
-
             const auths = [
-                { label: 'Estadísticas', val: e.autorizo_estadisticas },
+                { label: 'Estadisticas', val: e.autorizo_estadisticas },
                 { label: 'Contacto', val: e.autorizo_contacto },
                 { label: 'Eventos', val: e.autorizo_eventos },
             ];
-
             auths.forEach(a => {
                 doc.fontSize(8.5).fillColor(NEGRO).font('Helvetica')
                     .text(a.label, 40, y, { continued: true, width: 200 });
@@ -609,11 +640,12 @@ export class ExportService {
                 y += 20;
             });
 
-            // Footer
+            // ── Footer ───────────────────────────────────────────────────────────────
             doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
-                .text(`Generado el ${fecha} · Sistema de Seguimiento de Egresados`, 40, 790, {
-                    width: W, align: 'center',
-                });
+                .text(
+                    `Generado el ${fecha} - Sistema de Seguimiento de Egresados`,
+                    40, 790, { width: W, align: 'center' },
+                );
 
             doc.end();
         });
