@@ -3,6 +3,6 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class AppService {
   getHello(): string {
-    return 'Bienvenido al Backend de Seguimiento de Egresados del ITD';
+    return 'Sistema Backend de APIs para la plataforma de Seguimiento de Egresados del ITD';
   }
 }

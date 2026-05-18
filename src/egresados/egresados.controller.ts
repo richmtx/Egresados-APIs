@@ -1,7 +1,8 @@
 import {
   Controller, Get, Post, Patch, Body, Param, Query,
-  ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException,
+  ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException, Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -12,28 +13,24 @@ import { validate } from 'class-validator';
 import { EgresadosService } from './egresados.service';
 import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
+import { ExportEgresadosDto } from './dto/export-egresados.dto';
+import { ExportService } from './export/export.service';
 
-// ── Carpeta destino de las fotos ─────────────────────────────────────────────
 const FOTOS_DIR = join(process.cwd(), 'uploads', 'fotos');
 
-// Crea la carpeta si no existe al arrancar
 if (!existsSync(FOTOS_DIR)) {
   mkdirSync(FOTOS_DIR, { recursive: true });
 }
 
-// Configuración de Multer
 const multerFotoOptions = {
   storage: diskStorage({
     destination: (_req, _file, cb) => cb(null, FOTOS_DIR),
     filename: (_req, file, cb) => {
-      // Nombre: timestamp-random + extensión original
       const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
       cb(null, `${unique}${extname(file.originalname)}`);
     },
   }),
-  limits: {
-    fileSize: 2 * 1024 * 1024, // 2 MB
-  },
+  limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (allowed.includes(file.mimetype)) {
@@ -47,11 +44,11 @@ const multerFotoOptions = {
 @Controller('egresados')
 export class EgresadosController {
 
-  constructor(private readonly egresadosService: EgresadosService) { }
+  constructor(
+    private readonly egresadosService: EgresadosService,
+    private readonly exportService: ExportService,
+  ) { }
 
-  // ── POST /egresados/etapa1 ────────────────────────────────────────────────
-  // Acepta tanto JSON puro como multipart/form-data (cuando hay foto).
-  // En multipart: campo "data" = JSON del DTO, campo "foto" = archivo.
   @Post('etapa1')
   @UseInterceptors(FileInterceptor('foto', multerFotoOptions))
   async crearEtapa1(
@@ -62,37 +59,25 @@ export class EgresadosController {
     let dto: CreateEgresadoEtapa1Dto;
 
     if (dataRaw) {
-      // Viene como multipart/form-data → parsear el campo "data"
       let parsed: any;
       try {
         parsed = JSON.parse(dataRaw);
       } catch {
         throw new BadRequestException('El campo "data" no es un JSON válido.');
       }
-
       dto = plainToInstance(CreateEgresadoEtapa1Dto, parsed);
       const errores = await validate(dto);
-      if (errores.length > 0) {
-        throw new BadRequestException(errores);
-      }
+      if (errores.length > 0) throw new BadRequestException(errores);
     } else {
-      // Viene como application/json normal (sin foto)
       dto = plainToInstance(CreateEgresadoEtapa1Dto, bodyDirecto);
       const errores = await validate(dto);
-      if (errores.length > 0) {
-        throw new BadRequestException(errores);
-      }
+      if (errores.length > 0) throw new BadRequestException(errores);
     }
 
-    // Ruta relativa para guardar en BD (o null si no hay foto)
-    const fotoUrl = foto
-      ? `uploads/fotos/${foto.filename}`
-      : null;
-
+    const fotoUrl = foto ? `uploads/fotos/${foto.filename}` : null;
     return this.egresadosService.crearEtapa1(dto, fotoUrl);
   }
 
-  // ── PATCH /egresados/etapa2/:id ───────────────────────────────────────────
   @Patch('etapa2/:id')
   completarEtapa2(
     @Param('id', ParseIntPipe) id: number,
@@ -101,7 +86,6 @@ export class EgresadosController {
     return this.egresadosService.completarEtapa2(id, dto);
   }
 
-  // ── GET /egresados/buscar ─────────────────────────────────────────────────
   @Get('buscar')
   buscarPorCorreo(@Query('correo') correo: string) {
     return this.egresadosService.buscarPorCorreo(correo);
@@ -117,20 +101,12 @@ export class EgresadosController {
     return this.egresadosService.findAllConDetalles();
   }
 
-  @Get(':id/perfil')
-  getPerfil(@Param('id', ParseIntPipe) id: number) {
-    return this.egresadosService.getPerfil(id);
-  }
-
   @Get('estadisticas')
   getEstadisticas(
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getEstadisticas(
-      carrera,
-      anio ? parseInt(anio) : undefined,
-    );
+    return this.egresadosService.getEstadisticas(carrera, anio ? parseInt(anio) : undefined);
   }
 
   @Get('distribucion-geografica')
@@ -138,10 +114,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getDistribucionGeografica(
-      carrera,
-      anio ? Number(anio) : undefined,
-    );
+    return this.egresadosService.getDistribucionGeografica(carrera, anio ? Number(anio) : undefined);
   }
 
   @Get('vinculacion/colaboracion')
@@ -150,11 +123,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getEgresadosPorColaboracion(
-      tipo,
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getEgresadosPorColaboracion(tipo, carrera, anio ? +anio : undefined);
   }
 
   @Get('vinculacion/habilidad')
@@ -163,11 +132,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getEgresadosPorHabilidad(
-      tipo,
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getEgresadosPorHabilidad(tipo, carrera, anio ? +anio : undefined);
   }
 
   @Get('vinculacion/totales-colaboraciones')
@@ -175,10 +140,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getTotalesColaboraciones(
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getTotalesColaboraciones(carrera, anio ? +anio : undefined);
   }
 
   @Get('vinculacion/totales-habilidades')
@@ -186,10 +148,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getTotalesHabilidades(
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getTotalesHabilidades(carrera, anio ? +anio : undefined);
   }
 
   @Get('vinculacion/colaboracion-otro')
@@ -197,10 +156,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getEgresadosColaboracionOtro(
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getEgresadosColaboracionOtro(carrera, anio ? +anio : undefined);
   }
 
   @Get('vinculacion/habilidad-otro')
@@ -208,10 +164,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getEgresadosHabilidadOtro(
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getEgresadosHabilidadOtro(carrera, anio ? +anio : undefined);
   }
 
   @Get('vinculacion/distribucion-satisfaccion')
@@ -219,16 +172,13 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getDistribucionSatisfaccion(
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getDistribucionSatisfaccion(carrera, anio ? +anio : undefined);
   }
 
   @Get('estadisticas/genero')
   getEstadisticasGenero(
     @Query('carrera') carrera?: string,
-    @Query('anio') anio?: number,
+    @Query('anio') anio?: string,
   ) {
     return this.egresadosService.getEstadisticasGenero(carrera, anio ? +anio : undefined);
   }
@@ -239,11 +189,7 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getEgresadosPorAutorizacion(
-      tipo,
-      carrera,
-      anio ? +anio : undefined,
-    );
+    return this.egresadosService.getEgresadosPorAutorizacion(tipo, carrera, anio ? +anio : undefined);
   }
 
   @Get('comparativas')
@@ -259,10 +205,60 @@ export class EgresadosController {
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.egresadosService.getDirectorioPublico(
-      carrera,
-      anio ? parseInt(anio) : undefined,
-    );
+    return this.egresadosService.getDirectorioPublico(carrera, anio ? parseInt(anio) : undefined);
+  }
+
+  // EXPORTAR PDF
+  @Get('export/pdf')
+  async exportPdf(
+    @Query() filtros: ExportEgresadosDto,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.exportService.exportarPdf(filtros);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="egresados_${fecha}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
+  // EXPORTAR EXCEL
+  @Get('export/excel')
+  async exportExcel(
+    @Query() filtros: ExportEgresadosDto,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.exportService.exportarExcel(filtros);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="egresados_${fecha}.xlsx"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
+  @Get(':id/perfil')
+  getPerfil(@Param('id', ParseIntPipe) id: number) {
+    return this.egresadosService.getPerfil(id);
+  }
+
+  // EXPORTAR PERFIL INDIVIDUAL PDF
+  @Get(':id/export/pdf')
+  async exportPerfilPdf(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.exportService.exportarPerfilPdf(id);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="perfil_egresado_${id}_${fecha}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Delete(':id')
