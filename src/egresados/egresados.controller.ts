@@ -1,5 +1,4 @@
-import {
-  Controller, Get, Post, Patch, Body, Param, Query,
+import { Controller, Get, Post, Patch, Body, Param, Query,
   ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException, Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -49,6 +48,7 @@ export class EgresadosController {
     private readonly exportService: ExportService,
   ) { }
 
+  // POST
   @Post('etapa1')
   @UseInterceptors(FileInterceptor('foto', multerFotoOptions))
   async crearEtapa1(
@@ -78,6 +78,7 @@ export class EgresadosController {
     return this.egresadosService.crearEtapa1(dto, fotoUrl);
   }
 
+  //  PATCH
   @Patch('etapa2/:id')
   completarEtapa2(
     @Param('id', ParseIntPipe) id: number,
@@ -86,14 +87,19 @@ export class EgresadosController {
     return this.egresadosService.completarEtapa2(id, dto);
   }
 
+  @Patch(':id/revisado')
+  marcarRevisado(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { revisado: boolean; revisado_por: string },
+  ) {
+    return this.egresadosService.marcarRevisado(id, body.revisado, body.revisado_por);
+  }
+
+  // GET estáticas (sin parámetro dinámico)
+  // ⚠️  Todas estas deben ir ANTES de cualquier @Get(':id...')
   @Get('buscar')
   buscarPorCorreo(@Query('correo') correo: string) {
     return this.egresadosService.buscarPorCorreo(correo);
-  }
-
-  @Get()
-  findAll() {
-    return this.egresadosService.findAll();
   }
 
   @Get('detalles')
@@ -107,6 +113,14 @@ export class EgresadosController {
     @Query('anio') anio?: string,
   ) {
     return this.egresadosService.getEstadisticas(carrera, anio ? parseInt(anio) : undefined);
+  }
+
+  @Get('estadisticas/genero')
+  getEstadisticasGenero(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getEstadisticasGenero(carrera, anio ? +anio : undefined);
   }
 
   @Get('distribucion-geografica')
@@ -175,14 +189,6 @@ export class EgresadosController {
     return this.egresadosService.getDistribucionSatisfaccion(carrera, anio ? +anio : undefined);
   }
 
-  @Get('estadisticas/genero')
-  getEstadisticasGenero(
-    @Query('carrera') carrera?: string,
-    @Query('anio') anio?: string,
-  ) {
-    return this.egresadosService.getEstadisticasGenero(carrera, anio ? +anio : undefined);
-  }
-
   @Get('vinculacion/autorizacion')
   getEgresadosPorAutorizacion(
     @Query('tipo') tipo: 'estadisticas' | 'contacto' | 'eventos',
@@ -208,7 +214,11 @@ export class EgresadosController {
     return this.egresadosService.getDirectorioPublico(carrera, anio ? parseInt(anio) : undefined);
   }
 
-  // EXPORTAR PDF
+  @Get('pendientes-revision')
+  getPendientesRevision() {
+    return this.egresadosService.getPendientesRevision();
+  }
+
   @Get('export/pdf')
   async exportPdf(
     @Query() filtros: ExportEgresadosDto,
@@ -224,7 +234,6 @@ export class EgresadosController {
     res.end(buffer);
   }
 
-  // EXPORTAR EXCEL
   @Get('export/excel')
   async exportExcel(
     @Query() filtros: ExportEgresadosDto,
@@ -240,12 +249,17 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  // GET dinámicas (con :id)
+  @Get()
+  findAll() {
+    return this.egresadosService.findAll();
+  }
+
   @Get(':id/perfil')
   getPerfil(@Param('id', ParseIntPipe) id: number) {
     return this.egresadosService.getPerfil(id);
   }
 
-  // EXPORTAR PERFIL INDIVIDUAL PDF
   @Get(':id/export/pdf')
   async exportPerfilPdf(
     @Param('id', ParseIntPipe) id: number,

@@ -66,8 +66,16 @@ export class Egresado {
   @Column()
   certificacion_vigente_id: number;
 
+  @Column({ type: 'tinyint', default: 0 })
+  revisado: boolean;
+
+  @Column({ type: 'datetime', nullable: true })
+  fecha_revision: Date | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  revisado_por: string | null;
+
   // Foto de perfil opcional — ruta relativa almacenada, ej: "uploads/fotos/1234-abc.jpg"
   @Column({ type: 'varchar', length: 255, nullable: true, default: null })
   foto_url: string | null;
-
 }

@@ -325,33 +325,33 @@ export class EgresadosService {
 
   async findAllConDetalles(): Promise<any[]> {
     return this.dataSource.query(`
-      SELECT
-        e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-        e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
-        e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
-        e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
-        g.genero, c.nombre_carrera,
-        ni.nivel     AS nivel_ingles,
-        ae.rango     AS antiguedad_empleo,
-        cl.nivel     AS coincidencia_laboral,
-        sl.situacion AS situacion_laboral,
-        cv.respuesta AS certificacion_vigente,
-        aut.autorizo_estadisticas,
-        aut.autorizo_contacto,
-        aut.autorizo_eventos
-      FROM egresados e
-      LEFT JOIN generos                  g   ON e.genero_id                  = g.id_genero
-      LEFT JOIN carreras                 c   ON e.carrera_id                 = c.id_carrera
-      LEFT JOIN niveles_ingles           ni  ON e.nivel_ingles_id            = ni.id_nivel
-      LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id       = ae.id_antiguedad
-      LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id    = cl.id_coincidencia
-      LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id       = sl.id_situacion
-      LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id   = cv.id_certificacion_vigente
-      LEFT JOIN autorizaciones           aut ON e.id_egresado                = aut.id_egresado
-      ORDER BY e.fecha_registro DESC
-    `);
+    SELECT
+      e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+      e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
+      e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
+      e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
+      e.revisado, e.fecha_revision, e.revisado_por,
+      g.genero, c.nombre_carrera,
+      ni.nivel     AS nivel_ingles,
+      ae.rango     AS antiguedad_empleo,
+      cl.nivel     AS coincidencia_laboral,
+      sl.situacion AS situacion_laboral,
+      cv.respuesta AS certificacion_vigente,
+      aut.autorizo_estadisticas,
+      aut.autorizo_contacto,
+      aut.autorizo_eventos
+    FROM egresados e
+    LEFT JOIN generos                  g   ON e.genero_id                  = g.id_genero
+    LEFT JOIN carreras                 c   ON e.carrera_id                 = c.id_carrera
+    LEFT JOIN niveles_ingles           ni  ON e.nivel_ingles_id            = ni.id_nivel
+    LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id       = ae.id_antiguedad
+    LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id    = cl.id_coincidencia
+    LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id       = sl.id_situacion
+    LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id   = cv.id_certificacion_vigente
+    LEFT JOIN autorizaciones           aut ON e.id_egresado                = aut.id_egresado
+    ORDER BY e.fecha_registro DESC
+  `);
   }
-
 
   // REMOVE
   async remove(id: number): Promise<{ mensaje: string }> {
@@ -1779,5 +1779,56 @@ export class EgresadosService {
     }
 
     return egresados;
+  }
+
+  async marcarRevisado(
+    id: number,
+    revisado: boolean,
+    revisadoPor: string,
+  ): Promise<{ mensaje: string }> {
+
+    const existe = await this.egresadosRepo.findOne({ where: { id_egresado: id } });
+    if (!existe) {
+      throw new NotFoundException(`No se encontró el egresado con id ${id}.`);
+    }
+
+    await this.dataSource.query(
+      `UPDATE egresados
+        SET revisado       = ?,
+            fecha_revision = ?,
+            revisado_por   = ?
+      WHERE id_egresado    = ?`,
+      [
+        revisado ? 1 : 0,
+        revisado ? new Date() : null,
+        revisado ? revisadoPor : null,
+        id,
+      ],
+    );
+
+    return {
+      mensaje: revisado
+        ? 'Respuesta marcada como revisada.'
+        : 'Revisión removida correctamente.',
+    };
+  }
+
+  async getPendientesRevision(): Promise<{ total: number; egresados: any[] }> {
+    const rows = await this.dataSource.query(`
+    SELECT
+      e.id_egresado, e.nombre_completo, e.fecha_registro,
+      c.nombre_carrera, e.foto_url
+    FROM egresados e
+    LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+    WHERE e.revisado = 0
+    ORDER BY e.fecha_registro DESC
+    LIMIT 10
+  `);
+
+    const [{ total }] = await this.dataSource.query(
+      `SELECT COUNT(*) AS total FROM egresados WHERE revisado = 0`,
+    );
+
+    return { total: Number(total), egresados: rows };
   }
 }
