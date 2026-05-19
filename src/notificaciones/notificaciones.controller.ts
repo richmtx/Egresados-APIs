@@ -1,4 +1,5 @@
 import { Controller, Get, Patch, Delete, Param, ParseIntPipe, Query } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificacionesService } from './notificaciones.service';
 
 @Controller('notificaciones')
@@ -32,8 +33,24 @@ export class NotificacionesController {
     return this.notificacionesService.marcarLeida(id);
   }
 
+  @Delete('todas')                          // <-- nuevo
+  removeAll() {
+    return this.notificacionesService.removeAll();
+  }
+
+  @Delete('leidas')                         // <-- nuevo
+  removeLeidas() {
+    return this.notificacionesService.removeLeidas();
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.notificacionesService.remove(id);
+  }
+
+  // Cada domingo a las 2:00 AM
+  @Cron('0 2 * * 0')
+  handleLimpiezaAutomatica() {
+    return this.notificacionesService.limpiezaAutomatica();
   }
 }

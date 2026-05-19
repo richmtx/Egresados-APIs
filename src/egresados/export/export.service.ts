@@ -569,7 +569,7 @@ export class ExportService {
             // Satisfacción — reemplazamos unicode por texto seguro
             const nEstrellas = Math.round(e.satisfaccion_formacion || 0);
             doc.fontSize(7).fillColor(GRIS).font('Helvetica')
-                .text('Satisfaccion con la formacion', 40, y, { width: W });
+                .text('Satisfacción con la formación', 40, y, { width: W });
             const estrellasTexto = estrellaStr(nEstrellas);
             doc.fontSize(8).fillColor('#F59E0B').font('Helvetica-Bold')
                 .text(estrellasTexto, 40, y + 10, { width: 80, continued: true });
@@ -580,7 +580,7 @@ export class ExportService {
 
             // ── CERTIFICACIONES ──────────────────────────────────────────────────────
             seccion('Certificaciones');
-            campoFull('Cuenta con certificacion vigente', e.certificacion_vigente || '—');
+            campoFull('Cuenta con certificación vigente', e.certificacion_vigente || '—');
             if (todasCertificaciones.length > 0) {
                 doc.fontSize(7).fillColor(GRIS).font('Helvetica')
                     .text('Certificaciones obtenidas', 40, y, { width: W });
@@ -594,10 +594,10 @@ export class ExportService {
             y += 4;
 
             // ── SITUACIÓN LABORAL ────────────────────────────────────────────────────
-            seccion('Situacion laboral');
+            seccion('Situación laboral');
             campoFull('Empresa', e.empresa || '—');
             campoFull('Puesto', e.puesto_trabajo || '—');
-            filaDos('Ciudad de trabajo', e.ciudad_trabajo || '—', 'Antiguedad', e.antiguedad_empleo || '—');
+            filaDos('Ciudad de trabajo', e.ciudad_trabajo || '—', 'Antigüedad', e.antiguedad_empleo || '—');
             campoFull('Coincidencia con carrera', e.coincidencia_laboral || '—');
             y += 4;
 
@@ -614,7 +614,7 @@ export class ExportService {
 
             // ── COLABORACIONES ───────────────────────────────────────────────────────
             if (todasColaboraciones.length > 0) {
-                seccion('Interes en colaborar');
+                seccion('Interés en colaborar');
                 todasColaboraciones.forEach(col => {
                     doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
                         .text(`- ${col}`, 44, y, { width: W - 4 });
@@ -626,7 +626,7 @@ export class ExportService {
             // ── AUTORIZACIONES ───────────────────────────────────────────────────────
             seccion('Autorizaciones');
             const auths = [
-                { label: 'Estadisticas', val: e.autorizo_estadisticas },
+                { label: 'Estadísticas', val: e.autorizo_estadisticas },
                 { label: 'Contacto', val: e.autorizo_contacto },
                 { label: 'Eventos', val: e.autorizo_eventos },
             ];
