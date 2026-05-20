@@ -13,5 +13,6 @@ import { NotificacionesModule } from '../notificaciones/notificaciones.module';
   ],
   controllers: [EgresadosController],
   providers: [EgresadosService, ExportService],
+  exports: [EgresadosService],
 })
 export class EgresadosModule {}
