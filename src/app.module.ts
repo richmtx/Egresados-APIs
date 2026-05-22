@@ -34,11 +34,11 @@ import { DashboardModule } from './dashboard/dashboard.module';
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
       type: 'mysql',
-      host: 'localhost',
-      port: 3306,
-      username: 'root',
-      password: 'California29',
-      database: 'egresados',
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT) || 3306,
+      username: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || 'California29',
+      database: process.env.DB_NAME || 'egresados',
       autoLoadEntities: true,
       synchronize: false,
     }),
@@ -69,4 +69,4 @@ import { DashboardModule } from './dashboard/dashboard.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
