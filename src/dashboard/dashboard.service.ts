@@ -103,11 +103,13 @@ export class DashboardService {
         e.fecha_registro,
         e.foto_url,
         e.revisado,
-        c.nombre_carrera
+        c.nombre_carrera,
+        g.genero
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      LEFT JOIN generos g ON e.genero_id = g.id_genero
       ORDER BY e.fecha_registro DESC
-      LIMIT 5
+      LIMIT 10
     `);
 
     // 8. Notificaciones sin leer 
@@ -121,11 +123,13 @@ export class DashboardService {
         e.nombre_completo,
         e.fecha_registro,
         e.foto_url,
-        c.nombre_carrera
+        c.nombre_carrera,
+        g.genero
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      LEFT JOIN generos g ON e.genero_id = g.id_genero
       ORDER BY e.fecha_registro DESC
-      LIMIT 5
+      LIMIT 10
     `);
 
     // 10. Resumen del periodo actual (mes en curso)
