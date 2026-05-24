@@ -27,6 +27,7 @@ import { TitulacionModule } from './titulacion/titulacion.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     UsuariosModule,
     NotificacionesModule,
     DashboardModule,
+    MailModule,
   ],
   controllers: [AppController],
   providers: [AppService],
