@@ -16,7 +16,7 @@ export class UsuariosController {
   constructor(
     private readonly usuariosService: UsuariosService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) { }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
@@ -39,6 +39,21 @@ export class UsuariosController {
     return this.usuariosService.getHistorialPorUsuario(id);
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Post('historial')
+  async registrarAccion(
+    @Body() body: { accion: string; descripcion: string; seccion: string },
+    @Req() req: any,
+  ) {
+    await this.usuariosService.registrarAccion(
+      req.user.id_usuario,
+      body.accion,
+      body.descripcion,
+      body.seccion,
+    );
+    return { ok: true };
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get(':id')
   async getUsuario(@Param('id', ParseIntPipe) id: number) {
@@ -52,7 +67,7 @@ export class UsuariosController {
     const user = await this.usuariosService.login(body.usuario, body.contrasena);
     if (!user) throw new UnauthorizedException('Usuario o contraseña incorrectos');
 
-    const payload = { sub: user.id_usuario, usuario: user.usuario, rol: user.rol };
+    const payload = { sub: user.id_usuario, usuario: user.usuario, nombre_completo: user.nombre_completo, rol: user.rol };
     const access_token = this.jwtService.sign(payload);
 
     return { mensaje: 'Login exitoso', access_token, usuario: user };
