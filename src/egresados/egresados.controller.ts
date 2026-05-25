@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Body, Param, Query,
-  ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException, Res,
+  ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException, Res, UseGuards,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -14,6 +15,10 @@ import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
 import { ExportEgresadosDto } from './dto/export-egresados.dto';
 import { ExportService } from './export/export.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
 
 const FOTOS_DIR = join(process.cwd(), 'uploads', 'fotos');
 
@@ -40,6 +45,7 @@ const multerFotoOptions = {
   },
 };
 
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('egresados')
 export class EgresadosController {
 
@@ -49,6 +55,7 @@ export class EgresadosController {
   ) { }
 
   // POST
+  @Public()
   @Post('etapa1')
   @UseInterceptors(FileInterceptor('foto', multerFotoOptions))
   async crearEtapa1(
@@ -79,6 +86,7 @@ export class EgresadosController {
   }
 
   //  PATCH
+  @Public()
   @Patch('etapa2/:id')
   completarEtapa2(
     @Param('id', ParseIntPipe) id: number,
@@ -87,6 +95,7 @@ export class EgresadosController {
     return this.egresadosService.completarEtapa2(id, dto);
   }
 
+  @Roles('admin')
   @Patch(':id/revisado')
   marcarRevisado(
     @Param('id', ParseIntPipe) id: number,
@@ -97,6 +106,7 @@ export class EgresadosController {
 
   // GET estáticas (sin parámetro dinámico)
   // ⚠️  Todas estas deben ir ANTES de cualquier @Get(':id...')
+  @Public()
   @Get('buscar')
   buscarPorCorreo(@Query('correo') correo: string) {
     return this.egresadosService.buscarPorCorreo(correo);
@@ -206,19 +216,37 @@ export class EgresadosController {
     return this.egresadosService.getComparativas(carreras);
   }
 
-  @Get('directorio')
-  getDirectorioPublico(
-    @Query('carrera') carrera?: string,
-    @Query('anio') anio?: string,
-  ) {
-    return this.egresadosService.getDirectorioPublico(carrera, anio ? parseInt(anio) : undefined);
+  @Get('directorio/filtros')
+  getFiltrosDirectorio() {
+    return this.egresadosService.getFiltrosDirectorio();
   }
 
+  @Get('directorio')
+  getDirectorioPublico(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(24), ParseIntPipe) limit: number,
+    @Query('busqueda') busqueda?: string,
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Query('titulacion') titulacion?: string,
+  ) {
+    return this.egresadosService.getDirectorioPublico(
+      page,
+      limit,
+      busqueda,
+      carrera,
+      anio ? parseInt(anio) : undefined,
+      titulacion,
+    );
+  }
+
+  @Roles('admin')
   @Get('pendientes-revision')
   getPendientesRevision() {
     return this.egresadosService.getPendientesRevision();
   }
 
+  @Roles('admin')
   @Get('export/pdf')
   async exportPdf(
     @Query() filtros: ExportEgresadosDto,
@@ -234,6 +262,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('export/excel')
   async exportExcel(
     @Query() filtros: ExportEgresadosDto,
@@ -260,6 +289,7 @@ export class EgresadosController {
     return this.egresadosService.getPerfil(id);
   }
 
+  @Roles('admin')
   @Get(':id/export/pdf')
   async exportPerfilPdf(
     @Param('id', ParseIntPipe) id: number,
@@ -275,6 +305,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.egresadosService.remove(id);

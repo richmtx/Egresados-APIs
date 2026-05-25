@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -25,6 +26,7 @@ import { FormacionModule } from './satisfaccion-formacion/formacion.module';
 import { SituacionModule } from './situacion-laboral/situacion.module';
 import { TitulacionModule } from './titulacion/titulacion.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { AuthModule } from './auth/auth.module';
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { MailModule } from './mail/mail.module';
@@ -32,6 +34,7 @@ import { MailModule } from './mail/mail.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 100 }]),
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
       type: 'mysql',
@@ -63,6 +66,7 @@ import { MailModule } from './mail/mail.module';
     FormacionModule,
     SituacionModule,
     TitulacionModule,
+    AuthModule,
     UsuariosModule,
     NotificacionesModule,
     DashboardModule,

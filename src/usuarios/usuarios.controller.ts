@@ -1,74 +1,96 @@
 import {
   Controller, Get, Post, Put, Delete,
-  Param, Body, UnauthorizedException, BadRequestException, ParseIntPipe, Query
+  Param, Body, Req, UnauthorizedException, BadRequestException,
+  ParseIntPipe, Query, UseGuards,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { UsuariosService } from './usuarios.service';
-import { Usuario } from './usuarios.entity';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('usuarios')
 export class UsuariosController {
 
-  constructor(private readonly usuariosService: UsuariosService) { }
+  constructor(
+    private readonly usuariosService: UsuariosService,
+    private readonly jwtService: JwtService,
+  ) {}
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   @Get()
   async getUsuarios() {
     return this.usuariosService.findAll();
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   @Get('historial')
   async getHistorial(@Query('limite') limite?: string) {
     return this.usuariosService.getHistorial(limite ? parseInt(limite) : 50);
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   @Get('historial/:id')
   async getHistorialUsuario(@Param('id', ParseIntPipe) id: number) {
     return this.usuariosService.getHistorialPorUsuario(id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   async getUsuario(@Param('id', ParseIntPipe) id: number) {
     return this.usuariosService.findOne(id);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
   async login(@Body() body: { usuario: string; contrasena: string }) {
     const user = await this.usuariosService.login(body.usuario, body.contrasena);
     if (!user) throw new UnauthorizedException('Usuario o contraseña incorrectos');
-    return { mensaje: 'Login exitoso', usuario: user };
+
+    const payload = { sub: user.id_usuario, usuario: user.usuario, rol: user.rol };
+    const access_token = this.jwtService.sign(payload);
+
+    return { mensaje: 'Login exitoso', access_token, usuario: user };
   }
 
-  // POST /usuarios/invitado
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   @Post('invitado')
-  async crearInvitado(@Body() body: { nombre_completo: string; admin_id: number }) {
-    if (!body.nombre_completo || !body.admin_id)
-      throw new BadRequestException('Faltan campos requeridos: nombre_completo, admin_id');
-    return this.usuariosService.crearInvitado(body.nombre_completo, body.admin_id);
+  async crearInvitado(@Body() body: { nombre_completo: string }, @Req() req: any) {
+    if (!body.nombre_completo)
+      throw new BadRequestException('Falta campo requerido: nombre_completo');
+    return this.usuariosService.crearInvitado(body.nombre_completo, req.user.id_usuario);
   }
 
-  // POST /usuarios/admin
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   @Post('admin')
-  async crearAdmin(@Body() body: { nombre_completo: string; admin_id: number }) {
-    if (!body.nombre_completo || !body.admin_id)
-      throw new BadRequestException('Faltan campos requeridos: nombre_completo, admin_id');
-    return this.usuariosService.crearAdmin(body.nombre_completo, body.admin_id);
+  async crearAdmin(@Body() body: { nombre_completo: string }, @Req() req: any) {
+    if (!body.nombre_completo)
+      throw new BadRequestException('Falta campo requerido: nombre_completo');
+    return this.usuariosService.crearAdmin(body.nombre_completo, req.user.id_usuario);
   }
 
-  // PUT /usuarios/:id/estado
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   @Put(':id/estado')
   async cambiarEstado(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { estado: 'activo' | 'inactivo'; admin_id: number },
+    @Body() body: { estado: 'activo' | 'inactivo' },
+    @Req() req: any,
   ) {
-    return this.usuariosService.cambiarEstado(id, body.estado, body.admin_id);
+    return this.usuariosService.cambiarEstado(id, body.estado, req.user.id_usuario);
   }
 
-  // DELETE /usuarios/:id — ahora puede eliminar admins también
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   @Delete(':id')
-  async deleteUsuario(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { admin_id: number },
-  ) {
-    if (!body.admin_id) throw new BadRequestException('Se requiere admin_id');
-    return this.usuariosService.remove(id, body.admin_id);
+  async deleteUsuario(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.usuariosService.remove(id, req.user.id_usuario);
   }
 }

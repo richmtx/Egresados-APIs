@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
 import { Usuario } from './usuarios.entity';
 import { HistorialActividad } from './historial-actividad.entity';
 
@@ -26,9 +27,24 @@ export class UsuariosService {
   }
 
   async login(usuario: string, contrasena: string): Promise<Omit<Usuario, 'contrasena'> | null> {
-    const user = await this.usuariosRepository.findOneBy({ usuario, contrasena });
-    if (!user) return null;
-    if (user.estado === 'inactivo') return null;
+    const user = await this.usuariosRepository.findOneBy({ usuario });
+    if (!user || user.estado === 'inactivo') return null;
+
+    const esBcrypt = user.contrasena.startsWith('$2b$') || user.contrasena.startsWith('$2a$');
+    let passwordMatch: boolean;
+
+    if (esBcrypt) {
+      passwordMatch = await bcrypt.compare(contrasena, user.contrasena);
+    } else {
+      // Auto-migración: contraseña legacy en texto plano
+      passwordMatch = user.contrasena === contrasena;
+      if (passwordMatch) {
+        const hashed = await bcrypt.hash(contrasena, 10);
+        await this.usuariosRepository.update(user.id_usuario, { contrasena: hashed });
+      }
+    }
+
+    if (!passwordMatch) return null;
 
     await this.usuariosRepository.update(user.id_usuario, { ultimo_acceso: new Date() });
     await this.registrarAccion(user.id_usuario, 'login', 'Inicio de sesión', 'sistema');
@@ -48,7 +64,7 @@ export class UsuariosService {
     const nuevo = this.usuariosRepository.create({
       nombre_completo,
       usuario: usuarioGenerado,
-      contrasena: contrasenaGenerada,
+      contrasena: await bcrypt.hash(contrasenaGenerada, 10),
       rol: 'invitado',
       estado: 'activo',
     });
@@ -71,7 +87,7 @@ export class UsuariosService {
     const nuevo = this.usuariosRepository.create({
       nombre_completo,
       usuario: usuarioGenerado,
-      contrasena: contrasenaGenerada,
+      contrasena: await bcrypt.hash(contrasenaGenerada, 10),
       rol: 'admin',
       estado: 'activo',
     });

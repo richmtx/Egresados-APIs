@@ -1,7 +1,10 @@
-import { Controller, Get, Patch, Delete, Param, ParseIntPipe, Query } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Controller, Get, Patch, Delete, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { NotificacionesService } from './notificaciones.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
 
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('notificaciones')
 export class NotificacionesController {
 
@@ -33,12 +36,12 @@ export class NotificacionesController {
     return this.notificacionesService.marcarLeida(id);
   }
 
-  @Delete('todas')                          // <-- nuevo
+  @Delete('todas')
   removeAll() {
     return this.notificacionesService.removeAll();
   }
 
-  @Delete('leidas')                         // <-- nuevo
+  @Delete('leidas')
   removeLeidas() {
     return this.notificacionesService.removeLeidas();
   }
