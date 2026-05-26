@@ -15,6 +15,7 @@ import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
 import { ExportEgresadosDto } from './dto/export-egresados.dto';
 import { ExportService } from './export/export.service';
+import { ExportEstadisticasService } from './export/export-estadisticas.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -52,6 +53,7 @@ export class EgresadosController {
   constructor(
     private readonly egresadosService: EgresadosService,
     private readonly exportService: ExportService,
+    private readonly exportEstadisticasService: ExportEstadisticasService,
   ) { }
 
   // POST
@@ -116,6 +118,178 @@ export class EgresadosController {
   findAllConDetalles() {
     return this.egresadosService.findAllConDetalles();
   }
+
+  // Exportación de estadísticas
+
+  @Get('estadisticas/export/pdf')
+  async exportEstadisticasPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarEstadisticasPdf(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="estadisticas_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('estadisticas/export/excel')
+  async exportEstadisticasExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarEstadisticasExcel(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="estadisticas_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('estadisticas/genero/export/pdf')
+  async exportGenerosPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarGenerosPdf(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="generos_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('estadisticas/genero/export/excel')
+  async exportGenerosExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarGenerosExcel(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="generos_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('empleabilidad/export/pdf')
+  async exportEmpleabilidadPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarEmpleabilidadPdf(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="empleabilidad_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('empleabilidad/export/excel')
+  async exportEmpleabilidadExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarEmpleabilidadExcel(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="empleabilidad_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('titulacion/export/pdf')
+  async exportTitulacionPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarTitulacionPdf(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="titulacion_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('titulacion/export/excel')
+  async exportTitulacionExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarTitulacionExcel(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="titulacion_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('vinculacion/export/pdf')
+  async exportVinculacionPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarVinculacionPdf(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="vinculacion_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('vinculacion/export/excel')
+  async exportVinculacionExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarVinculacionExcel(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="vinculacion_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('comparativas/export/pdf')
+  async exportComparativasPdf(
+    @Query('carreras') carrerasParam: string,
+    @Res() res?: any,
+  ) {
+    const carreras = carrerasParam ? carrerasParam.split(',').map(c => c.trim()).filter(Boolean) : [];
+    const buffer = await this.exportEstadisticasService.exportarComparativasPdf(carreras);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="comparativas_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('comparativas/export/excel')
+  async exportComparativasExcel(
+    @Query('carreras') carrerasParam: string,
+    @Res() res?: any,
+  ) {
+    const carreras = carrerasParam ? carrerasParam.split(',').map(c => c.trim()).filter(Boolean) : [];
+    const buffer = await this.exportEstadisticasService.exportarComparativasExcel(carreras);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="comparativas_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('distribucion-geografica/export/pdf')
+  async exportGeografiaPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarGeografiaPdf(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="geografia_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Get('distribucion-geografica/export/excel')
+  async exportGeografiaExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarGeografiaExcel(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="geografia_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  // Datos de estadísticas
 
   @Get('estadisticas')
   getEstadisticas(
