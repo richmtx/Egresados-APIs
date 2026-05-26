@@ -45,6 +45,7 @@ import { MailModule } from './mail/mail.module';
       database: process.env.DB_NAME || 'egresados',
       autoLoadEntities: true,
       synchronize: false,
+      timezone: 'Z',
     }),
 
     // Registro de módulos
