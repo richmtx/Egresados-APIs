@@ -382,6 +382,16 @@ export class EgresadosController {
     return this.egresadosService.getEgresadosPorAutorizacion(tipo, carrera, anio ? +anio : undefined);
   }
 
+  @Get('vinculacion/carreras')
+  getVinculacionCarreras() {
+    return this.egresadosService.getVinculacionCarreras();
+  }
+
+  @Get('vinculacion/anios')
+  getVinculacionAnios() {
+    return this.egresadosService.getVinculacionAnios();
+  }
+
   @Get('comparativas')
   getComparativas(@Query('carreras') carrerasParam: string) {
     const carreras = carrerasParam

@@ -1840,6 +1840,25 @@ export class EgresadosService {
     };
   }
 
+  async getVinculacionCarreras(): Promise<string[]> {
+    const rows = await this.dataSource.query(`
+      SELECT DISTINCT c.nombre_carrera
+      FROM egresados e
+      JOIN carreras c ON e.carrera_id = c.id_carrera
+      ORDER BY c.nombre_carrera ASC
+    `);
+    return rows.map((r: any) => r.nombre_carrera);
+  }
+
+  async getVinculacionAnios(): Promise<number[]> {
+    const rows = await this.dataSource.query(`
+      SELECT DISTINCT anio_egreso
+      FROM egresados
+      ORDER BY anio_egreso DESC
+    `);
+    return rows.map((r: any) => Number(r.anio_egreso));
+  }
+
   async marcarRevisado(
     id: number,
     revisado: boolean,
