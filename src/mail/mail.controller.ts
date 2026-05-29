@@ -26,13 +26,13 @@ export class MailController {
         };
     }
 
-    // ── Endpoint de prueba (sin JWT para testing rápido) ────────────
+    // Endpoint de prueba (sin JWT para testing rápido)
     // ⚠️ IMPORTANTE: elimina este endpoint antes de subir a producción
     @Post('test')
     @HttpCode(200)
     async testEmail() {
         await this.mailService.enviarMasivo({
-            destinatarios: ['tu-correo@gmail.com'], // 👈 cambia esto
+            destinatarios: ['tu-correo@gmail.com'],
             asunto: '✅ Prueba de correo — NestJS SMTP',
             esHtml: true,
             mensaje: `

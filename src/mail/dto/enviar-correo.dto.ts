@@ -1,21 +1,19 @@
-import {
-    IsArray, IsEmail, IsNotEmpty, IsString,
-    ArrayMinSize, IsOptional, IsBoolean, ValidateNested
-} from 'class-validator';
+import { IsArray, IsEmail, IsNotEmpty, IsString, ArrayMinSize, 
+    IsOptional, IsBoolean, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AdjuntoDto {
     @IsString()
     @IsNotEmpty()
-    filename: string;      // Nombre del archivo: "reporte.pdf"
+    filename: string;
 
     @IsString()
     @IsNotEmpty()
-    content: string;       // Base64 del archivo
+    content: string;
 
     @IsString()
     @IsOptional()
-    contentType?: string;  // "application/pdf", "image/png", etc.
+    contentType?: string;
 }
 
 export class EnviarCorreoDto {
@@ -27,12 +25,12 @@ export class EnviarCorreoDto {
     @IsArray()
     @IsEmail({}, { each: true })
     @IsOptional()
-    cc?: string[];         // Con copia
+    cc?: string[];      
 
     @IsArray()
     @IsEmail({}, { each: true })
     @IsOptional()
-    bcc?: string[];        // Con copia oculta
+    bcc?: string[];     
 
     @IsString()
     @IsNotEmpty()
@@ -40,11 +38,11 @@ export class EnviarCorreoDto {
 
     @IsString()
     @IsNotEmpty()
-    mensaje: string;       // Texto plano o HTML según esHtml
+    mensaje: string;   
 
     @IsBoolean()
     @IsOptional()
-    esHtml?: boolean;      // true = mensaje se envía como HTML
+    esHtml?: boolean;    
 
     @IsArray()
     @ValidateNested({ each: true })

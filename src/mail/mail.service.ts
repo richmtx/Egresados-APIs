@@ -38,7 +38,7 @@ export class MailService {
                 cc: dto.cc ?? [],
                 bcc: dto.bcc ?? [],
                 subject: dto.asunto,
-                html: htmlFinal,   // ← siempre HTML ahora, el pie lo requiere
+                html: htmlFinal,
                 attachments,
             });
 
