@@ -39,8 +39,9 @@ export class ExportEstadisticasService {
     y: number,
     onNewPage: () => number,
     seccionTitulo?: string,
+    rowHeight?: number,
   ): number {
-    const ROW_H = 18;
+    const ROW_H = rowHeight ?? 18;
     const HDR_H = 18;
     const TITULO_H = 20;
     const totalW = colWidths.reduce((a, b) => a + b, 0);
@@ -506,36 +507,321 @@ export class ExportEstadisticasService {
 
   async exportarEmpleabilidadPdf(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticas(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
-    const doc = this.pdfDoc(); const bufPromise = this.collectBuffer(doc);
-    const onNewPage = () => this.pdfNewPageWithSubtitle(doc, 'Empleabilidad');
-    const k = data.kpis; const total = k.total_egresados || 1;
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
+    const doc = this.pdfDoc();
+    const bufPromise = this.collectBuffer(doc);
+    const onNewPage = () => this.pdfNewPage(doc);
 
+    const k = data.kpis;
+    const total = k.total_egresados || 1;
+
+    // Página 1: encabezado principal (solo aquí va el título)
     let y = this.pdfPageHeader(doc, 'Empleabilidad', filtros, fecha);
+
+    // 1) Indicadores de Empleabilidad
     y = this.pdfSection(doc, 'Indicadores de Empleabilidad', y, onNewPage);
-    y = this.pdfTable(doc, ['Indicador', 'Valor'], [['Total Egresados', String(k.total_egresados)], ['Empleados', String(k.empleados)], ['Desempleados', String(k.desempleados)], ['% Empleados', `${((k.empleados / total) * 100).toFixed(1)}%`], ['Satisfacción Promedio', `${(+(k.satisfaccion_promedio) || 0).toFixed(2)} / 5`]], [260, 160], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Empleo por Carrera', y, onNewPage);
-    y = this.pdfTable(doc, ['Carrera', 'Total', 'Empleados', '% Emp.'], (data.empleabilidadCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.empleados), r.total > 0 ? `${((r.empleados / r.total) * 100).toFixed(1)}%` : '0%']), [220, 80, 80, 80], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Sector Laboral', y, onNewPage);
-    y = this.pdfTable(doc, ['Sector', 'Total'], (data.sectorLaboral || []).map((r: any) => [r.sector || '—', String(r.total)]), [350, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Top Empresas', y, onNewPage);
-    y = this.pdfTable(doc, ['Empresa', 'Total'], (data.topEmpresas || []).map((r: any) => [r.empresa || '—', String(r.total)]), [350, 100], MARGIN_X, y, onNewPage);
-    if ((data.coincidenciaCarrera || []).length > 0) { y = this.pdfSection(doc, 'Coincidencia con Carrera', y); y = this.pdfTable(doc, ['Carrera', 'Coincidencia', 'Total', '%'], (data.coincidenciaCarrera || []).map((r: any) => [r.nombre_carrera, r.coincidencia, String(r.total), `${(+(r.porcentaje) || 0).toFixed(1)}%`]), [220, 120, 80, 80], MARGIN_X, y, onNewPage); }
-    if ((data.tiempoEmpleoCarrera || []).length > 0) { y = this.pdfSection(doc, 'Tiempo para Emplearse por Carrera', y); this.pdfTable(doc, ['Carrera', 'Total Egresados', 'Años Prom.'], (data.tiempoEmpleoCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total_egresados), `${(+(r.anios_promedio_para_emplearse) || 0).toFixed(2)} años`]), [280, 100, 120], MARGIN_X, y, onNewPage); }
-    this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
+    y = this.pdfTable(
+      doc,
+      ['Indicador', 'Valor'],
+      [
+        ['Total Egresados', String(k.total_egresados)],
+        ['Empleados', String(k.empleados)],
+        ['Desempleados', String(k.desempleados)],
+        ['% Empleados', `${((k.empleados / total) * 100).toFixed(1)}%`],
+        ['Satisfacción Promedio', `${(+(k.satisfaccion_promedio) || 0).toFixed(2)} / 5`],
+      ],
+      [260, 160], MARGIN_X, y, onNewPage,
+    );
+
+    // 2) Sectores donde trabajan los egresados
+    y = this.pdfSection(doc, 'Sectores donde Trabajan los Egresados', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Sector', 'Total'],
+      (data.sectorLaboral || []).map((r: any) => [r.sector || '—', String(r.total)]),
+      [350, 100], MARGIN_X, y, onNewPage,
+    );
+
+    // 3) Empleabilidad por Carrera
+    y = this.pdfSection(doc, 'Empleabilidad por Carrera', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Total', 'Empleados', '% Emp.'],
+      (data.empleabilidadCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        String(r.total),
+        String(r.empleados),
+        r.total > 0 ? `${((r.empleados / r.total) * 100).toFixed(1)}%` : '0%',
+      ]),
+      [220, 80, 80, 80], MARGIN_X, y, onNewPage,
+    );
+
+    // 4) Tiempo para Emplearse
+    if ((data.tiempoEmpleoCarrera || []).length > 0) {
+      y = this.pdfSection(doc, 'Tiempo para Emplearse por Carrera', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Carrera', 'Total Egresados', 'Años Prom.'],
+        (data.tiempoEmpleoCarrera || [])
+          .sort((a: any, b: any) => +(a.anios_promedio_para_emplearse) - +(b.anios_promedio_para_emplearse))
+          .map((r: any) => [
+            r.nombre_carrera,
+            String(r.total_egresados),
+            `${(+(r.anios_promedio_para_emplearse) || 0).toFixed(2)} años`,
+          ]),
+        [280, 100, 120], MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // 5) Coincidencia Carrera–Trabajo (resumen % positivo por carrera)
+    if ((data.coincidenciaCarrera || []).length > 0) {
+      // Agrupar: una fila por carrera con todas sus coincidencias
+      const mapaCoincidencia = new Map<string, { total: number; rows: any[] }>();
+      for (const item of data.coincidenciaCarrera) {
+        if (!mapaCoincidencia.has(item.nombre_carrera)) {
+          mapaCoincidencia.set(item.nombre_carrera, { total: 0, rows: [] });
+        }
+        const entry = mapaCoincidencia.get(item.nombre_carrera)!;
+        entry.total += Number(item.total);
+        entry.rows.push(item);
+      }
+
+      const coincidenciaRows = (data.coincidenciaCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        r.coincidencia || '—',
+        String(r.total),
+        `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+      ]);
+
+      y = this.pdfSection(doc, 'Coincidencia Carrera–Trabajo', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Carrera', 'Coincidencia', 'Total', '%'],
+        coincidenciaRows,
+        [220, 160, 60, 60], MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // 6) Top Empresas Empleadoras
+    y = this.pdfSection(doc, 'Top Empresas Empleadoras', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Empresa', 'Total'],
+      (data.topEmpresas || []).map((r: any) => [r.empresa || '—', String(r.total)]),
+      [350, 100], MARGIN_X, y, onNewPage,
+    );
+
+    // 7) Detalle por Carrera (resumen cruzado: empleo + tiempo + coincidencia positiva)
+    y = this.pdfSection(doc, 'Detalle por Carrera', y, onNewPage);
+
+    // Construir mapa de tiempo por carrera
+    const tiempoMap = new Map<string, string>();
+    for (const t of data.tiempoEmpleoCarrera || []) {
+      tiempoMap.set(
+        t.nombre_carrera,
+        `${(+(t.anios_promedio_para_emplearse) || 0).toFixed(1)} años`,
+      );
+    }
+
+    // Construir mapa de coincidencia positiva por carrera
+    const coincPos = new Map<string, number>();
+    const coincTotal = new Map<string, number>();
+    for (const c of data.coincidenciaCarrera || []) {
+      const prev = coincTotal.get(c.nombre_carrera) || 0;
+      coincTotal.set(c.nombre_carrera, prev + Number(c.total));
+      const esPositiva =
+        c.coincidencia?.toLowerCase().includes('alta') ||
+        c.coincidencia?.toLowerCase().includes('totalmente') ||
+        c.coincidencia?.toLowerCase().includes('relacionad') ||
+        c.coincidencia?.toLowerCase().includes('gran medida');
+      if (esPositiva) {
+        coincPos.set(c.nombre_carrera, (coincPos.get(c.nombre_carrera) || 0) + Number(c.total));
+      }
+    }
+
+    const detalleRows = (data.empleabilidadCarrera || []).map((r: any) => {
+      const ct = coincTotal.get(r.nombre_carrera) || 0;
+      const cp = coincPos.get(r.nombre_carrera) || 0;
+      const pctCoincidencia = ct > 0 ? `${Math.round((cp / ct) * 100)}%` : '—';
+      return [
+        r.nombre_carrera,
+        String(r.total),
+        r.total > 0 ? `${((r.empleados / r.total) * 100).toFixed(1)}%` : '0%',
+        tiempoMap.get(r.nombre_carrera) || '—',
+        pctCoincidencia,
+      ];
+    });
+
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Total', '% Empleados', 'Tiempo Empleo', '% Coincidencia'],
+      detalleRows,
+      [200, 60, 90, 100, 110], MARGIN_X, y, onNewPage,
+    );
+
+    this.pdfFooter(doc, fecha);
+    doc.end();
+    return bufPromise;
   }
 
   async exportarEmpleabilidadExcel(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticas(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
     const { wb, addSheet } = this.makeWorkbook('Empleabilidad', filtros, fecha, () => 0);
-    const k = data.kpis; const total = k.total_egresados || 1;
-    { const ws = addSheet('KPIs', 2, 'Empleabilidad — KPIs'); ws.columns = [{ key: 'ind', width: 28 }, { key: 'val', width: 20 }]; this.excelTable(ws, ['Indicador', 'Valor'], [['Total Egresados', k.total_egresados], ['Empleados', k.empleados], ['Desempleados', k.desempleados], ['% Empleados', +((k.empleados / total) * 100).toFixed(2)], ['Satisfacción Promedio', k.satisfaccion_promedio]], 4); }
-    { const ws = addSheet('Empleo Carrera', 4, 'Empleo por Carrera'); ws.columns = [{ key: 'c', width: 35 }, { key: 't', width: 12 }, { key: 'e', width: 14 }, { key: 'p', width: 16 }]; this.excelTable(ws, ['Carrera', 'Total', 'Empleados', '% Empleados'], (data.empleabilidadCarrera || []).map((r: any) => [r.nombre_carrera, r.total, r.empleados, r.total > 0 ? +((r.empleados / r.total) * 100).toFixed(2) : 0]), 4); }
-    { const ws = addSheet('Sector Laboral', 2, 'Sector Laboral'); ws.columns = [{ key: 's', width: 30 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Sector', 'Total'], (data.sectorLaboral || []).map((r: any) => [r.sector, r.total]), 4); }
-    { const ws = addSheet('Top Empresas', 2, 'Top Empresas'); ws.columns = [{ key: 'e', width: 35 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Empresa', 'Total'], (data.topEmpresas || []).map((r: any) => [r.empresa || '—', r.total]), 4); }
-    { const ws = addSheet('Coincidencia', 4, 'Coincidencia Laboral con Carrera'); ws.columns = [{ key: 'c', width: 35 }, { key: 'co', width: 22 }, { key: 't', width: 12 }, { key: 'p', width: 14 }]; this.excelTable(ws, ['Carrera', 'Coincidencia con carrera', 'Total', 'Porcentaje'], (data.coincidenciaCarrera || []).map((r: any) => [r.nombre_carrera, r.coincidencia, r.total, r.porcentaje]), 4); }
-    { const ws = addSheet('Tiempo de Empleo', 3, 'Tiempo para Emplearse por Carrera'); ws.columns = [{ key: 'c', width: 35 }, { key: 't', width: 18 }, { key: 'a', width: 28 }]; this.excelTable(ws, ['Carrera', 'Total Egresados', 'Años Promedio para Emplearse'], (data.tiempoEmpleoCarrera || []).map((r: any) => [r.nombre_carrera, r.total_egresados, r.anios_promedio_para_emplearse]), 4); }
+    const k = data.kpis;
+    const total = k.total_egresados || 1;
+
+    // 1) Indicadores de Empleabilidad
+    {
+      const ws = addSheet('Indicadores', 2, 'Indicadores de Empleabilidad');
+      ws.columns = [{ key: 'ind', width: 28 }, { key: 'val', width: 20 }];
+      this.excelTable(ws, ['Indicador', 'Valor'], [
+        ['Total Egresados', k.total_egresados],
+        ['Empleados', k.empleados],
+        ['Desempleados', k.desempleados],
+        ['% Empleados', +((k.empleados / total) * 100).toFixed(2)],
+        ['Satisfacción Promedio', k.satisfaccion_promedio],
+      ], 4);
+    }
+
+    // 2) Sectores donde trabajan los egresados
+    {
+      const ws = addSheet('Sectores', 2, 'Sectores donde Trabajan los Egresados');
+      ws.columns = [{ key: 's', width: 38 }, { key: 't', width: 15 }];
+      this.excelTable(ws, ['Sector', 'Total'],
+        (data.sectorLaboral || []).map((r: any) => [r.sector || '—', r.total]),
+        4,
+      );
+    }
+
+    // 3) Empleabilidad por Carrera
+    {
+      const ws = addSheet('Empleo por Carrera', 4, 'Empleabilidad por Carrera');
+      ws.columns = [
+        { key: 'c', width: 38 },
+        { key: 't', width: 12 },
+        { key: 'e', width: 14 },
+        { key: 'p', width: 16 },
+      ];
+      this.excelTable(ws, ['Carrera', 'Total', 'Empleados', '% Empleados'],
+        (data.empleabilidadCarrera || []).map((r: any) => [
+          r.nombre_carrera,
+          r.total,
+          r.empleados,
+          r.total > 0 ? +((r.empleados / r.total) * 100).toFixed(2) : 0,
+        ]),
+        4,
+      );
+    }
+
+    // 4) Tiempo para Emplearse
+    {
+      const ws = addSheet('Tiempo para Emplearse', 3, 'Tiempo para Emplearse por Carrera');
+      ws.columns = [
+        { key: 'c', width: 38 },
+        { key: 't', width: 18 },
+        { key: 'a', width: 28 },
+      ];
+      this.excelTable(ws, ['Carrera', 'Total Egresados', 'Años Promedio para Emplearse'],
+        [...(data.tiempoEmpleoCarrera || [])]
+          .sort((a: any, b: any) => +(a.anios_promedio_para_emplearse) - +(b.anios_promedio_para_emplearse))
+          .map((r: any) => [r.nombre_carrera, r.total_egresados, r.anios_promedio_para_emplearse]),
+        4,
+      );
+    }
+
+    // 5) Coincidencia Carrera–Trabajo
+    {
+      const ws = addSheet('Coincidencia', 4, 'Coincidencia Carrera–Trabajo');
+      ws.columns = [
+        { key: 'c', width: 38 },
+        { key: 'co', width: 24 },
+        { key: 't', width: 12 },
+        { key: 'p', width: 14 },
+      ];
+      this.excelTable(ws, ['Carrera', 'Coincidencia con Carrera', 'Total', 'Porcentaje (%)'],
+        (data.coincidenciaCarrera || []).map((r: any) => [
+          r.nombre_carrera,
+          r.coincidencia || '—',
+          r.total,
+          +(+(r.porcentaje) || 0).toFixed(1),
+        ]),
+        4,
+      );
+    }
+
+    // 6) Top Empresas Empleadoras
+    {
+      const ws = addSheet('Top Empresas', 2, 'Top Empresas Empleadoras');
+      ws.columns = [{ key: 'e', width: 38 }, { key: 't', width: 15 }];
+      this.excelTable(ws, ['Empresa', 'Total'],
+        (data.topEmpresas || []).map((r: any) => [r.empresa || '—', r.total]),
+        4,
+      );
+    }
+
+    // 7) Detalle por Carrera (vista cruzada consolidada)
+    {
+      const ws = addSheet('Detalle por Carrera', 5, 'Detalle por Carrera');
+      ws.columns = [
+        { key: 'c', width: 38 },
+        { key: 't', width: 12 },
+        { key: 'pe', width: 16 },
+        { key: 'te', width: 24 },
+        { key: 'pc', width: 20 },
+      ];
+
+      // Mapa tiempo promedio por carrera
+      const tiempoMap = new Map<string, number>();
+      for (const t of data.tiempoEmpleoCarrera || []) {
+        tiempoMap.set(t.nombre_carrera, +(t.anios_promedio_para_emplearse) || 0);
+      }
+
+      // Mapa coincidencia positiva por carrera
+      const coincPos = new Map<string, number>();
+      const coincTotal = new Map<string, number>();
+      for (const c of data.coincidenciaCarrera || []) {
+        coincTotal.set(c.nombre_carrera, (coincTotal.get(c.nombre_carrera) || 0) + Number(c.total));
+        const esPositiva =
+          c.coincidencia?.toLowerCase().includes('alta') ||
+          c.coincidencia?.toLowerCase().includes('totalmente') ||
+          c.coincidencia?.toLowerCase().includes('relacionad') ||
+          c.coincidencia?.toLowerCase().includes('gran medida');
+        if (esPositiva) {
+          coincPos.set(c.nombre_carrera, (coincPos.get(c.nombre_carrera) || 0) + Number(c.total));
+        }
+      }
+
+      const detalleRows = (data.empleabilidadCarrera || []).map((r: any) => {
+        const ct = coincTotal.get(r.nombre_carrera) || 0;
+        const cp = coincPos.get(r.nombre_carrera) || 0;
+        return [
+          r.nombre_carrera,
+          r.total,
+          r.total > 0 ? +((r.empleados / r.total) * 100).toFixed(2) : 0,
+          tiempoMap.get(r.nombre_carrera) ?? null,
+          ct > 0 ? +((cp / ct) * 100).toFixed(2) : null,
+        ];
+      });
+
+      const nextRow = this.excelTable(
+        ws,
+        ['Carrera', 'Total Egresados', '% Empleados', 'Años Prom. para Emplearse', '% Coincidencia Positiva'],
+        detalleRows,
+        4,
+      );
+
+      // Formato numérico para columnas de porcentaje y tiempo
+      for (let r = 5; r < nextRow; r++) {
+        const row = ws.getRow(r);
+        row.getCell(3).numFmt = '0.00"%"';
+        row.getCell(4).numFmt = '0.00';
+        row.getCell(5).numFmt = '0.00"%"';
+      }
+    }
+
     return this.toBuffer(wb);
   }
 
@@ -543,32 +829,239 @@ export class ExportEstadisticasService {
 
   async exportarTitulacionPdf(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticas(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
-    const doc = this.pdfDoc(); const bufPromise = this.collectBuffer(doc);
-    const onNewPage = () => this.pdfNewPageWithSubtitle(doc, 'Titulación');
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
+    const doc = this.pdfDoc();
+    const bufPromise = this.collectBuffer(doc);
+
+    // Sin título repetido en páginas adicionales
+    const onNewPage = () => this.pdfNewPage(doc);
+
     const k = data.kpis;
+    const total = k.total_egresados || 1;
 
     let y = this.pdfPageHeader(doc, 'Titulación', filtros, fecha);
+
+    // 1) Indicadores de Titulación
     y = this.pdfSection(doc, 'Indicadores de Titulación', y, onNewPage);
-    y = this.pdfTable(doc, ['Indicador', 'Valor'], [['Total Egresados', String(k.total_egresados)], ['Titulados', String(k.titulados)], ['En Trámite', String(k.en_tramite)], ['No Titulados', String(k.no_titulados)]], [260, 160], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Titulación por Carrera', y, onNewPage);
-    y = this.pdfTable(doc, ['Carrera', 'Total', 'Titulados', 'Trámite', 'No Tit.', '% Tit.'], (data.titulacionCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.titulados), String(r.en_tramite), String(r.no_titulados), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]), [200, 65, 75, 75, 75, 75], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Titulación por Año', y, onNewPage);
-    y = this.pdfTable(doc, ['Año', 'Total', 'Titulados', 'En Trámite', '% Tit.'], (data.titulacionAnio || []).map((r: any) => [String(r.anio_egreso), String(r.total), String(r.titulados), String(r.en_tramite), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]), [80, 80, 100, 100, 100], MARGIN_X, y, onNewPage);
-    if ((data.posgradoPorTipo || []).length > 0) { y = this.pdfSection(doc, 'Posgrado por Tipo', y, onNewPage); this.pdfTable(doc, ['Tipo de Posgrado', 'Total'], (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', String(r.total)]), [300, 100], MARGIN_X, y, onNewPage); }
-    this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
+    y = this.pdfTable(
+      doc,
+      ['Indicador', 'Valor'],
+      [
+        ['Total Egresados', String(k.total_egresados)],
+        ['Titulados', String(k.titulados)],
+        ['En Trámite', String(k.en_tramite)],
+        ['No Titulados', String(k.no_titulados)],
+        ['% Titulados', `${((k.titulados / total) * 100).toFixed(1)}%`],
+        ['% En Trámite', `${((k.en_tramite / total) * 100).toFixed(1)}%`],
+        ['% No Titulados', `${((k.no_titulados / total) * 100).toFixed(1)}%`],
+      ],
+      [260, 160], MARGIN_X, y, onNewPage,
+    );
+
+    // 2) Egresados con Posgrado
+    if ((data.posgradoPorTipo || []).length > 0) {
+      y = this.pdfSection(doc, 'Egresados con Posgrado', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Tipo de Posgrado', 'Total'],
+        (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', String(r.total)]),
+        [340, 120], MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // 3) Estado de Titulación por Carrera
+    y = this.pdfSection(doc, 'Estado de Titulación por Carrera', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Total', 'Titulados', 'En Trámite', 'No Tit.', '% Tit.'],
+      (data.titulacionCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        String(r.total),
+        String(r.titulados),
+        String(r.en_tramite),
+        String(r.no_titulados),
+        `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+      ]),
+      [210, 65, 80, 90, 75, 75], MARGIN_X, y, onNewPage,
+      undefined,  // seccionTitulo
+      28,         // rowHeight
+    );
+
+    // 4) Tendencia de Titulación por Año de Egreso
+    y = this.pdfSection(doc, 'Tendencia de Titulación por Año de Egreso', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Año', 'Total', 'Titulados', 'En Trámite', 'No Tit.', '% Tit.'],
+      (data.titulacionAnio || [])
+        .sort((a: any, b: any) => Number(a.anio_egreso) - Number(b.anio_egreso))
+        .map((r: any) => [
+          String(r.anio_egreso),
+          String(r.total),
+          String(r.titulados),
+          String(r.en_tramite),
+          String(r.no_titulados ?? 0),
+          `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+        ]),
+      [70, 70, 90, 100, 90, 80], MARGIN_X, y, onNewPage,
+    );
+
+    // 5) Detalle por Carrera y Año de Egreso
+    if ((data.titulacionCarreraAnio || []).length > 0) {
+      y = this.pdfSection(doc, 'Detalle por Carrera y Año de Egreso', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Carrera', 'Año', 'Total', 'Titulados', 'En Trámite', 'No Tit.', '% Tit.'],
+        (data.titulacionCarreraAnio || [])
+          .sort((a: any, b: any) =>
+            a.nombre_carrera.localeCompare(b.nombre_carrera) ||
+            Number(a.anio_egreso) - Number(b.anio_egreso),
+          )
+          .map((r: any) => [
+            r.nombre_carrera,
+            String(r.anio_egreso),
+            String(r.total),
+            String(r.titulados),
+            String(r.en_tramite),
+            String(r.no_titulados ?? 0),
+            `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+          ]),
+        [190, 55, 60, 80, 90, 75, 75], MARGIN_X, y, onNewPage,
+        undefined,
+        28,
+      );
+    }
+
+    this.pdfFooter(doc, fecha);
+    doc.end();
+    return bufPromise;
   }
 
   async exportarTitulacionExcel(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticas(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
     const { wb, addSheet } = this.makeWorkbook('Titulación', filtros, fecha, () => 0);
     const k = data.kpis;
-    { const ws = addSheet('KPIs', 2, 'Titulación — KPIs'); ws.columns = [{ key: 'ind', width: 28 }, { key: 'val', width: 20 }]; this.excelTable(ws, ['Indicador', 'Valor'], [['Total Egresados', k.total_egresados], ['Titulados', k.titulados], ['En Trámite', k.en_tramite], ['No Titulados', k.no_titulados]], 4); }
-    { const ws = addSheet('Por Carrera', 8, 'Titulación por Carrera'); ws.columns = [{ key: 'c', width: 35 }, { key: 't', width: 10 }, { key: 'tt', width: 14 }, { key: 'tr', width: 14 }, { key: 'nt', width: 16 }, { key: 'pt', width: 14 }, { key: 'ptr', width: 14 }, { key: 'pnt', width: 16 }]; this.excelTable(ws, ['Carrera', 'Total', 'Titulados', 'En Trámite', 'No Titulados', '% Titulados', '% Trámite', '% No Titulados'], (data.titulacionCarrera || []).map((r: any) => [r.nombre_carrera, r.total, r.titulados, r.en_tramite, r.no_titulados, r.pct_titulados, r.pct_en_tramite, r.pct_no_titulados]), 4); }
-    { const ws = addSheet('Por Año', 5, 'Titulación por Año de Egreso'); ws.columns = [{ key: 'a', width: 12 }, { key: 't', width: 12 }, { key: 'tt', width: 14 }, { key: 'tr', width: 14 }, { key: 'p', width: 16 }]; this.excelTable(ws, ['Año', 'Total', 'Titulados', 'En Trámite', '% Titulados'], (data.titulacionAnio || []).map((r: any) => [r.anio_egreso, r.total, r.titulados, r.en_tramite, r.pct_titulados]), 4); }
-    { const ws = addSheet('Posgrado', 2, 'Posgrado por Tipo'); ws.columns = [{ key: 'tipo', width: 30 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Tipo de Posgrado', 'Total'], (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', r.total]), 4); }
-    { const ws = addSheet('Detalle Carrera-Año', 7, 'Titulación por Carrera y Año'); ws.columns = [{ key: 'c', width: 35 }, { key: 'a', width: 12 }, { key: 't', width: 12 }, { key: 'tt', width: 14 }, { key: 'tr', width: 14 }, { key: 'nt', width: 16 }, { key: 'p', width: 14 }]; this.excelTable(ws, ['Carrera', 'Año', 'Total', 'Titulados', 'En Trámite', 'No Titulados', '% Titulados'], (data.titulacionCarreraAnio || []).map((r: any) => [r.nombre_carrera, r.anio_egreso, r.total, r.titulados, r.en_tramite, r.no_titulados, r.pct_titulados]), 4); }
+    const total = k.total_egresados || 1;
+
+    // 1) Indicadores de Titulación
+    {
+      const ws = addSheet('Indicadores', 2, 'Indicadores de Titulación');
+      ws.columns = [{ key: 'ind', width: 30 }, { key: 'val', width: 20 }];
+      this.excelTable(ws, ['Indicador', 'Valor'], [
+        ['Total Egresados', k.total_egresados],
+        ['Titulados', k.titulados],
+        ['En Trámite', k.en_tramite],
+        ['No Titulados', k.no_titulados],
+        ['% Titulados', +((k.titulados / total) * 100).toFixed(2)],
+        ['% En Trámite', +((k.en_tramite / total) * 100).toFixed(2)],
+        ['% No Titulados', +((k.no_titulados / total) * 100).toFixed(2)],
+      ], 4);
+    }
+
+    // 2) Egresados con Posgrado
+    {
+      const ws = addSheet('Posgrado', 2, 'Egresados con Posgrado');
+      ws.columns = [{ key: 'tipo', width: 34 }, { key: 't', width: 15 }];
+      this.excelTable(ws, ['Tipo de Posgrado', 'Total'],
+        (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', r.total]),
+        4,
+      );
+    }
+
+    // 3) Estado de Titulación por Carrera
+    {
+      const ws = addSheet('Estado por Carrera', 8, 'Estado de Titulación por Carrera');
+      ws.columns = [
+        { key: 'c', width: 38 },
+        { key: 't', width: 10 },
+        { key: 'tt', width: 14 },
+        { key: 'tr', width: 14 },
+        { key: 'nt', width: 16 },
+        { key: 'pt', width: 14 },
+        { key: 'ptr', width: 14 },
+        { key: 'pnt', width: 16 },
+      ];
+      this.excelTable(
+        ws,
+        ['Carrera', 'Total', 'Titulados', 'En Trámite', 'No Titulados',
+          '% Titulados', '% En Trámite', '% No Titulados'],
+        (data.titulacionCarrera || []).map((r: any) => [
+          r.nombre_carrera,
+          r.total,
+          r.titulados,
+          r.en_tramite,
+          r.no_titulados,
+          +(+(r.pct_titulados) || 0).toFixed(2),
+          +(+(r.pct_en_tramite) || 0).toFixed(2),
+          +(+(r.pct_no_titulados) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 4) Tendencia de Titulación por Año de Egreso
+    {
+      const ws = addSheet('Tendencia por Año', 6, 'Tendencia de Titulación por Año de Egreso');
+      ws.columns = [
+        { key: 'a', width: 12 },
+        { key: 't', width: 12 },
+        { key: 'tt', width: 14 },
+        { key: 'tr', width: 14 },
+        { key: 'nt', width: 16 },
+        { key: 'p', width: 16 },
+      ];
+      this.excelTable(
+        ws,
+        ['Año', 'Total', 'Titulados', 'En Trámite', 'No Titulados', '% Titulados'],
+        [...(data.titulacionAnio || [])]
+          .sort((a: any, b: any) => Number(a.anio_egreso) - Number(b.anio_egreso))
+          .map((r: any) => [
+            r.anio_egreso,
+            r.total,
+            r.titulados,
+            r.en_tramite,
+            r.no_titulados ?? 0,
+            +(+(r.pct_titulados) || 0).toFixed(2),
+          ]),
+        4,
+      );
+    }
+
+    // 5) Detalle por Carrera y Año de Egreso
+    {
+      const ws = addSheet('Detalle Carrera–Año', 7, 'Detalle por Carrera y Año de Egreso');
+      ws.columns = [
+        { key: 'c', width: 38 },
+        { key: 'a', width: 12 },
+        { key: 't', width: 12 },
+        { key: 'tt', width: 14 },
+        { key: 'tr', width: 14 },
+        { key: 'nt', width: 16 },
+        { key: 'p', width: 14 },
+      ];
+      this.excelTable(
+        ws,
+        ['Carrera', 'Año', 'Total', 'Titulados', 'En Trámite', 'No Titulados', '% Titulados'],
+        [...(data.titulacionCarreraAnio || [])]
+          .sort((a: any, b: any) =>
+            a.nombre_carrera.localeCompare(b.nombre_carrera) ||
+            Number(a.anio_egreso) - Number(b.anio_egreso),
+          )
+          .map((r: any) => [
+            r.nombre_carrera,
+            r.anio_egreso,
+            r.total,
+            r.titulados,
+            r.en_tramite,
+            r.no_titulados ?? 0,
+            +(+(r.pct_titulados) || 0).toFixed(2),
+          ]),
+        4,
+      );
+    }
+
     return this.toBuffer(wb);
   }
 
