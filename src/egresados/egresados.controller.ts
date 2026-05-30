@@ -17,8 +17,6 @@ import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
 import { ExportEgresadosDto } from './dto/export-egresados.dto';
 import { ExportService } from './export/export.service';
 import { ExportEstadisticasService } from './export/export-estadisticas.service';
-import { ExportEstadisticasDto } from './export/dto/export-estadisticas.dto';
-
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -91,44 +89,6 @@ export class EgresadosController {
     return this.egresadosService.crearEtapa1(dto, fotoUrl);
   }
 
-  @Post('estadisticas/export/pdf')
-  async exportEstadisticasPdf(
-    @Body() body: ExportEstadisticasDto,
-    @Res() res: Response,
-  ) {
-    const buffer = await this.exportEstadisticasService.exportarEstadisticasPdf(
-      body.carrera,
-      body.anio,
-      body.chartImages,
-    );
-    const fecha = new Date().toISOString().split('T')[0];
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="estadisticas_${fecha}.pdf"`,
-      'Content-Length': buffer.length,
-    });
-    res.end(buffer);
-  }
-
-  @Post('estadisticas/export/excel')
-  async exportEstadisticasExcel(
-    @Body() body: ExportEstadisticasDto,
-    @Res() res: Response,
-  ) {
-    const buffer = await this.exportEstadisticasService.exportarEstadisticasExcel(
-      body.carrera,
-      body.anio,
-      body.chartImages,
-    );
-    const fecha = new Date().toISOString().split('T')[0];
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="estadisticas_${fecha}.xlsx"`,
-      'Content-Length': buffer.length,
-    });
-    res.end(buffer);
-  }
-
   // PATCH
 
   @Public()
@@ -149,7 +109,7 @@ export class EgresadosController {
     return this.egresadosService.marcarRevisado(id, body.revisado, body.revisado_por);
   }
 
-  // GET estáticas (sin parámetro dinámico)
+  // GET estáticas
 
   @Public()
   @Get('buscar')
@@ -160,6 +120,46 @@ export class EgresadosController {
   @Get('detalles')
   findAllConDetalles() {
     return this.egresadosService.findAllConDetalles();
+  }
+
+  // Exportación estadísticas generales — vuelven a GET (sin imágenes en body)
+
+  @Get('estadisticas/export/pdf')
+  async exportEstadisticasPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarEstadisticasPdf(
+      carrera,
+      anio ? +anio : undefined,
+    );
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="estadisticas_${fecha}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
+  @Get('estadisticas/export/excel')
+  async exportEstadisticasExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarEstadisticasExcel(
+      carrera,
+      anio ? +anio : undefined,
+    );
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="estadisticas_${fecha}.xlsx"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Get('estadisticas/genero/export/pdf')
@@ -430,10 +430,7 @@ export class EgresadosController {
     @Query('titulacion') titulacion?: string,
   ) {
     return this.egresadosService.getDirectorioPublico(
-      page,
-      limit,
-      busqueda,
-      carrera,
+      page, limit, busqueda, carrera,
       anio ? parseInt(anio) : undefined,
       titulacion,
     );

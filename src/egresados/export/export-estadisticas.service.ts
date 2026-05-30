@@ -3,7 +3,6 @@ const PDFDocument = require('pdfkit');
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { EgresadosService } from '../egresados.service';
-import { ChartImages } from './dto/export-estadisticas.dto';
 
 const VINO = '#6b1232';
 const GRIS = '#6B7280';
@@ -39,13 +38,24 @@ export class ExportEstadisticasService {
     x0: number,
     y: number,
     onNewPage: () => number,
+    seccionTitulo?: string,
   ): number {
     const ROW_H = 18;
     const HDR_H = 18;
+    const TITULO_H = 20;
     const totalW = colWidths.reduce((a, b) => a + b, 0);
-    const tableH = HDR_H + rows.length * ROW_H;
+    const tituloOffset = seccionTitulo ? TITULO_H : 0;
+    const MIN_ROWS_TO_SHOW = 1;
+    const spaceNeeded = tituloOffset + HDR_H + (MIN_ROWS_TO_SHOW * ROW_H);
 
-    if (y + tableH > PAGE_MAX_Y) y = onNewPage();
+    if (y + spaceNeeded > PAGE_MAX_Y) {
+      y = onNewPage();
+      if (seccionTitulo) {
+        y += 6;
+        doc.fontSize(9).fillColor(VINO).font('Helvetica-Bold').text(seccionTitulo, x0, y);
+        y += 14;
+      }
+    }
 
     const drawHeader = (yh: number): number => {
       doc.rect(x0, yh, totalW, HDR_H).fill(VINO);
@@ -67,7 +77,12 @@ export class ExportEstadisticasService {
       let x = x0;
       row.forEach((val, ci) => {
         doc.fontSize(7).fillColor(NEGRO).font('Helvetica')
-          .text(val ?? '—', x + 3, y + 5, { width: colWidths[ci] - 6, align: ci === 0 ? 'left' : 'center', lineBreak: false, ellipsis: true });
+          .text(val ?? '—', x + 3, y + 5, {
+            width: colWidths[ci] - 6,
+            align: ci === 0 ? 'left' : 'center',
+            lineBreak: false,
+            ellipsis: true,
+          });
         x += colWidths[ci];
       });
       y += ROW_H;
@@ -76,13 +91,11 @@ export class ExportEstadisticasService {
     return y + 6;
   }
 
-  /** Nueva página SIN encabezado (solo para Estadísticas Generales) */
   private pdfNewPage(doc: any): number {
     doc.addPage({ size: 'A4', layout: 'landscape', margins: { top: 40, bottom: 40, left: MARGIN_X, right: MARGIN_X } });
     return 28;
   }
 
-  /** Nueva página CON subtítulo (para otras secciones) */
   private pdfNewPageWithSubtitle(doc: any, subtitulo: string): number {
     doc.addPage({ size: 'A4', layout: 'landscape', margins: { top: 50, bottom: 40, left: MARGIN_X, right: MARGIN_X } });
     doc.fontSize(9).fillColor(VINO).font('Helvetica-Bold').text('Sistema de Seguimiento de Egresados', MARGIN_X, 18);
@@ -90,7 +103,7 @@ export class ExportEstadisticasService {
     return 46;
   }
 
-  private pdfSection(doc: any, titulo: string, y: number): number {
+  private pdfSection(doc: any, titulo: string, y: number, onNewPage?: () => number): number {
     y += 6;
     doc.fontSize(9).fillColor(VINO).font('Helvetica-Bold').text(titulo, MARGIN_X, y);
     return y + 14;
@@ -120,18 +133,6 @@ export class ExportEstadisticasService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
     });
-  }
-
-  private pdfChartImage(doc: any, base64: string | undefined, y: number, onNewPage: () => number, chartHeight = 180): number {
-    if (!base64) return y + 4;
-    const CHART_W = 780;
-    const PADDING = 8;
-    if (y + chartHeight + PADDING * 2 > PAGE_MAX_Y) y = onNewPage();
-    try {
-      const imgBuffer = Buffer.from(base64, 'base64');
-      doc.image(imgBuffer, MARGIN_X, y + PADDING, { width: CHART_W, height: chartHeight, fit: [CHART_W, chartHeight], align: 'center' });
-    } catch { /* imagen inválida, continuar */ }
-    return y + chartHeight + PADDING * 2 + 6;
   }
 
   // Excel helpers
@@ -170,18 +171,6 @@ export class ExportEstadisticasService {
     return startRow + 1 + rows.length;
   }
 
-  /** Inserta imagen en Excel usando notación de celda string para evitar error de tipo Anchor */
-  private async excelChartImage(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, base64: string | undefined, afterRow: number, numCols: number): Promise<number> {
-    if (!base64) return afterRow + 1;
-    try {
-      const imageId = wb.addImage({ base64, extension: 'png' });
-      const brCol = String.fromCharCode(64 + Math.max(numCols, 1));
-      ws.addImage(imageId, `A${afterRow + 1}:${brCol}${afterRow + 21}`);
-      for (let r = afterRow; r < afterRow + 22; r++) ws.getRow(r + 1).height = 15;
-      return afterRow + 23;
-    } catch { return afterRow + 1; }
-  }
-
   private makeWorkbook(titulo: string, filtros: string, fecha: string, _numCols: (name: string) => number) {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Sistema de Seguimiento de Egresados';
@@ -201,16 +190,16 @@ export class ExportEstadisticasService {
 
   // PÁGINA 1 — Estadísticas Generales
 
-  async exportarEstadisticasPdf(carrera?: string, anio?: number, chartImages?: ChartImages): Promise<Buffer> {
+  async exportarEstadisticasPdf(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticas(carrera, anio);
     const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
     const doc = this.pdfDoc(); const bufPromise = this.collectBuffer(doc);
     const onNewPage = () => this.pdfNewPage(doc);
-    const k = data.kpis; const imgs = chartImages ?? {};
+    const k = data.kpis;
 
     let y = this.pdfPageHeader(doc, 'Estadísticas Generales', filtros, fecha);
 
-    y = this.pdfSection(doc, 'Indicadores Clave', y);
+    y = this.pdfSection(doc, 'Indicadores Clave', y, onNewPage);
     y = this.pdfTable(doc, ['Indicador', 'Valor'], [
       ['Total Egresados', String(k.total_egresados)], ['Empleados', String(k.empleados)],
       ['Desempleados', String(k.desempleados)], ['Titulados', String(k.titulados)],
@@ -219,77 +208,200 @@ export class ExportEstadisticasService {
       ['Autorizó Contacto', String(k.autorizo_contacto)], ['Autorizó Eventos', String(k.autorizo_eventos)],
     ], [280, 160], MARGIN_X, y, onNewPage);
 
-    y = this.pdfSection(doc, 'Situación Laboral', y);
-    y = this.pdfTable(doc, ['Situación', 'Total'], (data.situacionLaboral || []).map((r: any) => [r.situacion, String(r.total)]), [360, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.situacionLaboral, y, onNewPage, 160);
+    y = this.pdfSection(doc, 'Situación Laboral', y, onNewPage);
+    y = this.pdfTable(doc, ['Situación', 'Total'],
+      (data.situacionLaboral || []).map((r: any) => [r.situacion, String(r.total)]),
+      [360, 100], MARGIN_X, y, onNewPage);
 
-    y = this.pdfSection(doc, 'Empleo por Carrera', y);
+    y = this.pdfSection(doc, 'Empleo por Carrera', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Total', 'Empleados', '% Emp.'],
-      (data.empleabilidadCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.empleados), r.total > 0 ? `${((r.empleados / r.total) * 100).toFixed(1)}%` : '0%']),
+      (data.empleabilidadCarrera || []).map((r: any) => [
+        r.nombre_carrera, String(r.total), String(r.empleados),
+        r.total > 0 ? `${((r.empleados / r.total) * 100).toFixed(1)}%` : '0%',
+      ]),
       [240, 80, 90, 90], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.empleabilidadCarrera, y, onNewPage, 200);
 
-    y = this.pdfSection(doc, 'Estado de Titulación', y);
+    y = this.pdfSection(doc, 'Estado de Titulación', y, onNewPage);
     y = this.pdfTable(doc, ['Estado', 'Total', '%'], [
       ['Titulados', String(k.titulados), `${((k.titulados / (k.total_egresados || 1)) * 100).toFixed(1)}%`],
       ['En Trámite', String(k.en_tramite), `${((k.en_tramite / (k.total_egresados || 1)) * 100).toFixed(1)}%`],
       ['No Titulados', String(k.no_titulados), `${((k.no_titulados / (k.total_egresados || 1)) * 100).toFixed(1)}%`],
     ], [240, 100, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.estadoTitulacion, y, onNewPage, 170);
 
-    y = this.pdfSection(doc, 'Titulación por Año', y);
+    y = this.pdfSection(doc, 'Titulación por Año', y, onNewPage);
     y = this.pdfTable(doc, ['Año', 'Total', 'Titulados', 'En Trámite', '% Tit.'],
-      (data.titulacionAnio || []).map((r: any) => [String(r.anio_egreso), String(r.total), String(r.titulados), String(r.en_tramite), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]),
+      (data.titulacionAnio || []).map((r: any) => [
+        String(r.anio_egreso), String(r.total), String(r.titulados),
+        String(r.en_tramite), `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+      ]),
       [80, 80, 100, 110, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.tendenciaTitulacion, y, onNewPage, 170);
 
-    y = this.pdfSection(doc, 'Niveles de Inglés', y);
-    y = this.pdfTable(doc, ['Nivel', 'Total'], (data.nivelesIngles || []).map((r: any) => [r.nivel, String(r.total)]), [300, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.nivelesIngles, y, onNewPage, 160);
+    y = this.pdfSection(doc, 'Niveles de Inglés', y, onNewPage);
+    y = this.pdfTable(doc, ['Nivel', 'Total'],
+      (data.nivelesIngles || []).map((r: any) => [r.nivel, String(r.total)]),
+      [300, 100], MARGIN_X, y, onNewPage);
 
-    y = this.pdfSection(doc, 'Inglés por Carrera', y);
+    y = this.pdfSection(doc, 'Inglés por Carrera', y, onNewPage);
     const inglesMap = new Map<string, Record<string, number>>();
     (data.inglesCarrera || []).forEach((r: any) => {
       if (!inglesMap.has(r.nombre_carrera)) inglesMap.set(r.nombre_carrera, {});
       inglesMap.get(r.nombre_carrera)![r.nivel] = +(r.total);
     });
-    const inglesRows = Array.from(inglesMap.entries()).map(([c, n]) => [c, String(n['Básico (A1-A2)'] ?? 0), String(n['Intermedio (B1-B2)'] ?? 0), String(n['Avanzado (C1-C2)'] ?? 0)]);
-    y = this.pdfTable(doc, ['Carrera', 'Básico', 'Intermedio', 'Avanzado'], inglesRows, [260, 90, 100, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.inglesCarrera, y, onNewPage, 190);
+    const inglesRows = Array.from(inglesMap.entries()).map(([c, n]) => [
+      c, String(n['Básico (A1-A2)'] ?? 0), String(n['Intermedio (B1-B2)'] ?? 0), String(n['Avanzado (C1-C2)'] ?? 0),
+    ]);
+    y = this.pdfTable(doc, ['Carrera', 'Básico', 'Intermedio', 'Avanzado'],
+      inglesRows, [260, 90, 100, 100], MARGIN_X, y, onNewPage);
 
-    y = this.pdfSection(doc, 'Satisfacción Académica', y);
+    y = this.pdfSection(doc, 'Satisfacción Académica', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Promedio (/ 5)'],
-      (data.satisfaccionCarrera || []).sort((a: any, b: any) => +b.promedio - +a.promedio).map((r: any) => [r.nombre_carrera, (+(r.promedio) || 0).toFixed(2)]),
+      (data.satisfaccionCarrera || [])
+        .sort((a: any, b: any) => +b.promedio - +a.promedio)
+        .map((r: any) => [r.nombre_carrera, (+(r.promedio) || 0).toFixed(2)]),
       [360, 140], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.satisfaccionCarrera, y, onNewPage, 190);
 
-    y = this.pdfSection(doc, 'Sector Laboral', y);
-    y = this.pdfTable(doc, ['Sector', 'Total'], (data.sectorLaboral || []).map((r: any) => [r.sector || '—', String(r.total)]), [370, 100], MARGIN_X, y, onNewPage);
+    y = this.pdfSection(doc, 'Sector Laboral', y, onNewPage);
+    y = this.pdfTable(doc, ['Sector', 'Total'],
+      (data.sectorLaboral || []).map((r: any) => [r.sector || '—', String(r.total)]),
+      [370, 100], MARGIN_X, y, onNewPage);
 
-    y = this.pdfSection(doc, 'Top Empresas', y);
-    y = this.pdfTable(doc, ['Empresa', 'Total'], (data.topEmpresas || []).map((r: any) => [r.empresa || '—', String(r.total)]), [370, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.topEmpresas, y, onNewPage, 180);
+    y = this.pdfSection(doc, 'Top Empresas', y, onNewPage);
+    y = this.pdfTable(doc, ['Empresa', 'Total'],
+      (data.topEmpresas || []).map((r: any) => [r.empresa || '—', String(r.total)]),
+      [370, 100], MARGIN_X, y, onNewPage);
 
-    y = this.pdfSection(doc, 'Autorizaciones por Carrera', y);
+    y = this.pdfSection(doc, 'Autorizaciones por Carrera', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Autorizó Contacto', 'Autorizó Eventos', 'Total'],
-      (data.participacionCarrera || []).map((r: any) => [r.nombre_carrera, String(r.autorizo_contacto), String(r.autorizo_eventos), String(r.total)]),
+      (data.participacionCarrera || []).map((r: any) => [
+        r.nombre_carrera, String(r.autorizo_contacto), String(r.autorizo_eventos), String(r.total),
+      ]),
       [230, 120, 120, 80], MARGIN_X, y, onNewPage);
-    y = this.pdfChartImage(doc, imgs.autorizacionesCarrera, y, onNewPage, 190);
 
     if ((data.fueraDurango || []).length > 0) {
-      y = this.pdfSection(doc, 'Egresados Fuera de Durango', y);
+      y = this.pdfSection(doc, 'Egresados Fuera de Durango', y, onNewPage);
       const mapaFD = new Map<string, number>();
       (data.fueraDurango || []).forEach((r: any) => mapaFD.set(r.ciudad_trabajo, (mapaFD.get(r.ciudad_trabajo) || 0) + +(r.total)));
-      y = this.pdfTable(doc, ['Ciudad de Trabajo', 'Total'], [...mapaFD.entries()].sort((a, b) => b[1] - a[1]).map(([c, t]) => [c, String(t)]), [370, 100], MARGIN_X, y, onNewPage);
-      y = this.pdfChartImage(doc, imgs.fueraDurango, y, onNewPage, 160);
+      y = this.pdfTable(doc, ['Ciudad de Trabajo', 'Total'],
+        [...mapaFD.entries()].sort((a, b) => b[1] - a[1]).map(([c, t]) => [c, String(t)]),
+        [370, 100], MARGIN_X, y, onNewPage);
     }
 
     if ((data.fueraMexico || []).length > 0) {
-      y = this.pdfSection(doc, 'Egresados Fuera de México', y);
+      y = this.pdfSection(doc, 'Egresados Fuera de México', y, onNewPage);
       const mapaFM = new Map<string, number>();
       (data.fueraMexico || []).forEach((r: any) => mapaFM.set(r.ciudad_trabajo, (mapaFM.get(r.ciudad_trabajo) || 0) + +(r.total)));
-      y = this.pdfTable(doc, ['Ciudad / País', 'Total'], [...mapaFM.entries()].sort((a, b) => b[1] - a[1]).map(([c, t]) => [c, String(t)]), [370, 100], MARGIN_X, y, onNewPage);
-      y = this.pdfChartImage(doc, imgs.fueraMexico, y, onNewPage, 160);
+      y = this.pdfTable(doc, ['Ciudad / País', 'Total'],
+        [...mapaFM.entries()].sort((a, b) => b[1] - a[1]).map(([c, t]) => [c, String(t)]),
+        [370, 100], MARGIN_X, y, onNewPage);
+    }
+
+    // Hallazgos Destacados
+    const insights: { emoji: string; titulo: string; descripcion: string }[] = [];
+    const total = k.total_egresados || 1;
+
+    // Carrera más empleable
+    const empCarrera = (data.empleabilidadCarrera || []);
+    if (empCarrera.length > 0) {
+      const masEmpleable = empCarrera.reduce(
+        (prev: any, curr: any) => (+curr.empleados / +curr.total) > (+prev.empleados / +prev.total) ? curr : prev,
+        empCarrera[0],
+      );
+      if (masEmpleable) {
+        const pct = ((+masEmpleable.empleados / +masEmpleable.total) * 100).toFixed(1);
+        const nombre = masEmpleable.nombre_carrera
+          .replace('Ingeniería ', 'Ing. ')
+          .replace('Sistemas Computacionales (Presencial / Virtual)', 'Sistemas Comp.');
+        insights.push({
+          emoji: '🏆',
+          titulo: 'Carrera más empleable',
+          descripcion: `${nombre} tiene la tasa más alta de empleo: ${pct}% de sus egresados trabajan actualmente.`,
+        });
+      }
+    }
+
+    // Tasa de titulación
+    const pctTit = ((+k.titulados / total) * 100).toFixed(1);
+    insights.push({
+      emoji: '📜',
+      titulo: 'Tasa de titulación',
+      descripcion: `El ${pctTit}% de los egresados ya están titulados. ${k.en_tramite} tienen el proceso en trámite actualmente.`,
+    });
+
+    // Nivel de inglés dominante
+    const nivelesIngles = (data.nivelesIngles || []);
+    if (nivelesIngles.length > 0) {
+      const dominante = nivelesIngles.reduce(
+        (a: any, b: any) => +b.total > +a.total ? b : a,
+        nivelesIngles[0],
+      );
+      const pctIng = ((+dominante.total / total) * 100).toFixed(1);
+      insights.push({
+        emoji: '🌐',
+        titulo: 'Nivel de inglés dominante',
+        descripcion: `El ${pctIng}% de los egresados tienen nivel ${dominante.nivel}. Considerar programas de mejora del idioma.`,
+      });
+    }
+
+    // Alta satisfacción académica
+    if (+(k.satisfaccion_promedio) >= 4) {
+      insights.push({
+        emoji: '⭐',
+        titulo: 'Alta satisfacción académica',
+        descripcion: `La satisfacción promedio es ${(+(k.satisfaccion_promedio)).toFixed(2)}/5, lo que indica una percepción positiva de la formación recibida.`,
+      });
+    }
+
+    // Egresados en el extranjero
+    const totalExt = (data.fueraMexico || []).reduce((s: number, f: any) => s + +f.total, 0);
+    if (totalExt > 0) {
+      insights.push({
+        emoji: '✈️',
+        titulo: 'Egresados en el extranjero',
+        descripcion: `${totalExt} egresado${totalExt > 1 ? 's' : ''} trabaja${totalExt === 1 ? '' : 'n'} fuera de México, presencia internacional del ITD.`,
+      });
+    }
+
+    // Movilidad nacional
+    const totalFD = (data.fueraDurango || []).reduce((s: number, f: any) => s + +f.total, 0);
+    if (totalFD > 0) {
+      insights.push({
+        emoji: '📍',
+        titulo: 'Movilidad nacional',
+        descripcion: `${totalFD} egresado${totalFD > 1 ? 's' : ''} trabaja${totalFD === 1 ? '' : 'n'} en otras ciudades de México fuera de Durango.`,
+      });
+    }
+
+    // Dibujar sección de hallazgos si hay datos
+    if (insights.length > 0) {
+      // Título de sección
+      y += 8;
+      if (y + 14 + insights.length * 40 > PAGE_MAX_Y) y = onNewPage();
+      doc.fontSize(9).fillColor(VINO).font('Helvetica-Bold').text('Hallazgos Destacados', MARGIN_X, y);
+      y += 14;
+
+      insights.forEach((insight) => {
+        if (y + 38 > PAGE_MAX_Y) y = onNewPage();
+
+        const BLOCK_W = 780;
+        const BLOCK_H = 34;
+        doc.rect(MARGIN_X, y, BLOCK_W, BLOCK_H).fill('#FDF2F6');
+        doc.moveTo(MARGIN_X, y).lineTo(MARGIN_X + BLOCK_W, y).strokeColor('#E5E7EB').lineWidth(0.4).stroke();
+
+        // Franja de color vino a la izquierda
+        doc.rect(MARGIN_X, y, 4, BLOCK_H).fill(VINO);
+
+        // Título en vino
+        doc.fontSize(8).fillColor(VINO).font('Helvetica-Bold')
+          .text(insight.titulo, MARGIN_X + 12, y + 6, { width: 200, lineBreak: false });
+
+        // Descripción en gris oscuro
+        doc.fontSize(7).fillColor('#374151').font('Helvetica')
+          .text(insight.descripcion, MARGIN_X + 12, y + 18, { width: 755, lineBreak: false, ellipsis: true });
+
+        y += BLOCK_H + 3;
+      });
+
+      y += 4;
     }
 
     this.pdfFooter(doc, fecha);
@@ -297,10 +409,9 @@ export class ExportEstadisticasService {
     return bufPromise;
   }
 
-  async exportarEstadisticasExcel(carrera?: string, anio?: number, chartImages?: ChartImages): Promise<Buffer> {
+  async exportarEstadisticasExcel(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticas(carrera, anio);
     const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
-    const imgs = chartImages ?? {};
     const wb = new ExcelJS.Workbook(); wb.creator = 'Sistema de Seguimiento de Egresados'; wb.created = new Date();
     const k = data.kpis;
 
@@ -311,19 +422,82 @@ export class ExportEstadisticasService {
     };
 
     { const ws = addSheet('KPIs', 2, 'Estadísticas Generales — KPIs'); ws.columns = [{ key: 'ind', width: 30 }, { key: 'val', width: 20 }]; this.excelTable(ws, ['Indicador', 'Valor'], [['Total Egresados', k.total_egresados], ['Empleados', k.empleados], ['Desempleados', k.desempleados], ['Titulados', k.titulados], ['En Trámite', k.en_tramite], ['No Titulados', k.no_titulados], ['Satisfacción Prom.', k.satisfaccion_promedio], ['Autorizó Contacto', k.autorizo_contacto], ['Autorizó Eventos', k.autorizo_eventos]], 4); }
-    { const ws = addSheet('Situación Laboral', 2, 'Situación Laboral'); ws.columns = [{ key: 'sit', width: 38 }, { key: 'tot', width: 15 }]; const next = this.excelTable(ws, ['Situación', 'Total'], (data.situacionLaboral || []).map((r: any) => [r.situacion, r.total]), 4); await this.excelChartImage(wb, ws, imgs.situacionLaboral, next, 2); }
-    { const ws = addSheet('Empleo Carrera', 4, 'Empleo por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 't', width: 12 }, { key: 'e', width: 14 }, { key: 'p', width: 16 }]; const next = this.excelTable(ws, ['Carrera', 'Total', 'Empleados', '% Empleados'], (data.empleabilidadCarrera || []).map((r: any) => [r.nombre_carrera, r.total, r.empleados, r.total > 0 ? +((r.empleados / r.total) * 100).toFixed(2) : 0]), 4); await this.excelChartImage(wb, ws, imgs.empleabilidadCarrera, next, 4); }
-    { const ws = addSheet('Estado Titulación', 3, 'Estado de Titulación'); ws.columns = [{ key: 'est', width: 22 }, { key: 'tot', width: 14 }, { key: 'pct', width: 14 }]; const total = k.total_egresados || 1; const next = this.excelTable(ws, ['Estado', 'Total', '%'], [['Titulados', k.titulados, +((k.titulados / total) * 100).toFixed(2)], ['En Trámite', k.en_tramite, +((k.en_tramite / total) * 100).toFixed(2)], ['No Titulados', k.no_titulados, +((k.no_titulados / total) * 100).toFixed(2)]], 4); await this.excelChartImage(wb, ws, imgs.estadoTitulacion, next, 3); }
-    { const ws = addSheet('Titulación Año', 5, 'Titulación por Año de Egreso'); ws.columns = [{ key: 'a', width: 12 }, { key: 't', width: 12 }, { key: 'tt', width: 14 }, { key: 'tr', width: 14 }, { key: 'p', width: 16 }]; const next = this.excelTable(ws, ['Año', 'Total', 'Titulados', 'En Trámite', '% Titulados'], (data.titulacionAnio || []).map((r: any) => [r.anio_egreso, r.total, r.titulados, r.en_tramite, r.pct_titulados]), 4); await this.excelChartImage(wb, ws, imgs.tendenciaTitulacion, next, 5); }
-    { const ws = addSheet('Nivel Inglés', 2, 'Distribución de Niveles de Inglés'); ws.columns = [{ key: 'n', width: 28 }, { key: 't', width: 15 }]; const next = this.excelTable(ws, ['Nivel', 'Total'], (data.nivelesIngles || []).map((r: any) => [r.nivel, r.total]), 4); await this.excelChartImage(wb, ws, imgs.nivelesIngles, next, 2); }
-    { const ws = addSheet('Inglés Carrera', 4, 'Inglés por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 'b', width: 16 }, { key: 'i', width: 16 }, { key: 'a', width: 16 }]; const ingMap = new Map<string, Record<string, number>>(); (data.inglesCarrera || []).forEach((r: any) => { if (!ingMap.has(r.nombre_carrera)) ingMap.set(r.nombre_carrera, {}); ingMap.get(r.nombre_carrera)![r.nivel] = +(r.total); }); const ingRows = Array.from(ingMap.entries()).map(([c, n]) => [c, n['Básico (A1-A2)'] ?? 0, n['Intermedio (B1-B2)'] ?? 0, n['Avanzado (C1-C2)'] ?? 0]); const next = this.excelTable(ws, ['Carrera', 'Básico (A1-A2)', 'Intermedio (B1-B2)', 'Avanzado (C1-C2)'], ingRows, 4); await this.excelChartImage(wb, ws, imgs.inglesCarrera, next, 4); }
-    { const ws = addSheet('Satisfacción', 2, 'Satisfacción Académica por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 'p', width: 22 }]; const sorted = [...(data.satisfaccionCarrera || [])].sort((a: any, b: any) => +b.promedio - +a.promedio); const next = this.excelTable(ws, ['Carrera', 'Promedio (sobre 5)'], sorted.map((r: any) => [r.nombre_carrera, r.promedio]), 4); await this.excelChartImage(wb, ws, imgs.satisfaccionCarrera, next, 2); }
+    { const ws = addSheet('Situación Laboral', 2, 'Situación Laboral'); ws.columns = [{ key: 'sit', width: 38 }, { key: 'tot', width: 15 }]; this.excelTable(ws, ['Situación', 'Total'], (data.situacionLaboral || []).map((r: any) => [r.situacion, r.total]), 4); }
+    { const ws = addSheet('Empleo Carrera', 4, 'Empleo por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 't', width: 12 }, { key: 'e', width: 14 }, { key: 'p', width: 16 }]; this.excelTable(ws, ['Carrera', 'Total', 'Empleados', '% Empleados'], (data.empleabilidadCarrera || []).map((r: any) => [r.nombre_carrera, r.total, r.empleados, r.total > 0 ? +((r.empleados / r.total) * 100).toFixed(2) : 0]), 4); }
+    { const ws = addSheet('Estado Titulación', 3, 'Estado de Titulación'); ws.columns = [{ key: 'est', width: 22 }, { key: 'tot', width: 14 }, { key: 'pct', width: 14 }]; const total = k.total_egresados || 1; this.excelTable(ws, ['Estado', 'Total', '%'], [['Titulados', k.titulados, +((k.titulados / total) * 100).toFixed(2)], ['En Trámite', k.en_tramite, +((k.en_tramite / total) * 100).toFixed(2)], ['No Titulados', k.no_titulados, +((k.no_titulados / total) * 100).toFixed(2)]], 4); }
+    { const ws = addSheet('Titulación Año', 5, 'Titulación por Año de Egreso'); ws.columns = [{ key: 'a', width: 12 }, { key: 't', width: 12 }, { key: 'tt', width: 14 }, { key: 'tr', width: 14 }, { key: 'p', width: 16 }]; this.excelTable(ws, ['Año', 'Total', 'Titulados', 'En Trámite', '% Titulados'], (data.titulacionAnio || []).map((r: any) => [r.anio_egreso, r.total, r.titulados, r.en_tramite, r.pct_titulados]), 4); }
+    { const ws = addSheet('Nivel Inglés', 2, 'Distribución de Niveles de Inglés'); ws.columns = [{ key: 'n', width: 28 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Nivel', 'Total'], (data.nivelesIngles || []).map((r: any) => [r.nivel, r.total]), 4); }
+    { const ws = addSheet('Inglés Carrera', 4, 'Inglés por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 'b', width: 16 }, { key: 'i', width: 16 }, { key: 'a', width: 16 }]; const ingMap = new Map<string, Record<string, number>>(); (data.inglesCarrera || []).forEach((r: any) => { if (!ingMap.has(r.nombre_carrera)) ingMap.set(r.nombre_carrera, {}); ingMap.get(r.nombre_carrera)![r.nivel] = +(r.total); }); const ingRows = Array.from(ingMap.entries()).map(([c, n]) => [c, n['Básico (A1-A2)'] ?? 0, n['Intermedio (B1-B2)'] ?? 0, n['Avanzado (C1-C2)'] ?? 0]); this.excelTable(ws, ['Carrera', 'Básico (A1-A2)', 'Intermedio (B1-B2)', 'Avanzado (C1-C2)'], ingRows, 4); }
+    { const ws = addSheet('Satisfacción', 2, 'Satisfacción Académica por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 'p', width: 22 }]; const sorted = [...(data.satisfaccionCarrera || [])].sort((a: any, b: any) => +b.promedio - +a.promedio); this.excelTable(ws, ['Carrera', 'Promedio (sobre 5)'], sorted.map((r: any) => [r.nombre_carrera, r.promedio]), 4); }
     { const ws = addSheet('Sector Laboral', 2, 'Sector Laboral'); ws.columns = [{ key: 's', width: 38 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Sector', 'Total'], (data.sectorLaboral || []).map((r: any) => [r.sector, r.total]), 4); }
-    { const ws = addSheet('Top Empresas', 2, 'Top Empresas'); ws.columns = [{ key: 'e', width: 38 }, { key: 't', width: 15 }]; const next = this.excelTable(ws, ['Empresa', 'Total'], (data.topEmpresas || []).map((r: any) => [r.empresa || '—', r.total]), 4); await this.excelChartImage(wb, ws, imgs.topEmpresas, next, 2); }
-    { const ws = addSheet('Autorizaciones', 4, 'Autorizaciones por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 'co', width: 18 }, { key: 'ev', width: 18 }, { key: 't', width: 12 }]; const next = this.excelTable(ws, ['Carrera', 'Autorizó Contacto', 'Autorizó Eventos', 'Total'], (data.participacionCarrera || []).map((r: any) => [r.nombre_carrera, r.autorizo_contacto, r.autorizo_eventos, r.total]), 4); await this.excelChartImage(wb, ws, imgs.autorizacionesCarrera, next, 4); }
-    if ((data.fueraDurango || []).length > 0) { const ws = addSheet('Fuera de Durango', 3, 'Egresados Fuera de Durango'); ws.columns = [{ key: 'ci', width: 32 }, { key: 'ca', width: 38 }, { key: 't', width: 12 }]; const next = this.excelTable(ws, ['Ciudad', 'Carrera', 'Total'], (data.fueraDurango || []).map((r: any) => [r.ciudad_trabajo, r.nombre_carrera, r.total]), 4); await this.excelChartImage(wb, ws, imgs.fueraDurango, next, 3); }
-    if ((data.fueraMexico || []).length > 0) { const ws = addSheet('Fuera de México', 3, 'Egresados Fuera de México'); ws.columns = [{ key: 'ci', width: 32 }, { key: 'ca', width: 38 }, { key: 't', width: 12 }]; const next = this.excelTable(ws, ['Ciudad / País', 'Carrera', 'Total'], (data.fueraMexico || []).map((r: any) => [r.ciudad_trabajo, r.nombre_carrera, r.total]), 4); await this.excelChartImage(wb, ws, imgs.fueraMexico, next, 3); }
+    { const ws = addSheet('Top Empresas', 2, 'Top Empresas'); ws.columns = [{ key: 'e', width: 38 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Empresa', 'Total'], (data.topEmpresas || []).map((r: any) => [r.empresa || '—', r.total]), 4); }
+    { const ws = addSheet('Autorizaciones', 4, 'Autorizaciones por Carrera'); ws.columns = [{ key: 'c', width: 38 }, { key: 'co', width: 18 }, { key: 'ev', width: 18 }, { key: 't', width: 12 }]; this.excelTable(ws, ['Carrera', 'Autorizó Contacto', 'Autorizó Eventos', 'Total'], (data.participacionCarrera || []).map((r: any) => [r.nombre_carrera, r.autorizo_contacto, r.autorizo_eventos, r.total]), 4); }
+    if ((data.fueraDurango || []).length > 0) { const ws = addSheet('Fuera de Durango', 3, 'Egresados Fuera de Durango'); ws.columns = [{ key: 'ci', width: 32 }, { key: 'ca', width: 38 }, { key: 't', width: 12 }]; this.excelTable(ws, ['Ciudad', 'Carrera', 'Total'], (data.fueraDurango || []).map((r: any) => [r.ciudad_trabajo, r.nombre_carrera, r.total]), 4); }
+    if ((data.fueraMexico || []).length > 0) { const ws = addSheet('Fuera de México', 3, 'Egresados Fuera de México'); ws.columns = [{ key: 'ci', width: 32 }, { key: 'ca', width: 38 }, { key: 't', width: 12 }]; this.excelTable(ws, ['Ciudad / País', 'Carrera', 'Total'], (data.fueraMexico || []).map((r: any) => [r.ciudad_trabajo, r.nombre_carrera, r.total]), 4); }
     { const ws = addSheet('Evolución', 5, 'Evolución por Generación'); ws.columns = [{ key: 'a', width: 12 }, { key: 't', width: 12 }, { key: 'pe', width: 16 }, { key: 'pt', width: 16 }, { key: 's', width: 18 }]; this.excelTable(ws, ['Año', 'Total', '% Empleados', '% Titulados', 'Satisfacción %'], (data.evolucionGeneracion || []).map((r: any) => [r.anio_egreso, r.total, r.pct_empleados, r.pct_titulados, r.satisfaccion_pct]), 4); }
+
+    // Hallazgos Destacados
+    {
+      const ws = addSheet('Hallazgos', 2, 'Hallazgos Destacados');
+      ws.columns = [{ key: 'titulo', width: 35 }, { key: 'descripcion', width: 90 }];
+
+      const total = k.total_egresados || 1;
+      const insights: (string | number | null)[][] = [];
+
+      // Carrera más empleable
+      const empCarrera = (data.empleabilidadCarrera || []);
+      if (empCarrera.length > 0) {
+        const masEmpleable = empCarrera.reduce(
+          (prev: any, curr: any) => (+curr.empleados / +curr.total) > (+prev.empleados / +prev.total) ? curr : prev,
+          empCarrera[0],
+        );
+        if (masEmpleable) {
+          const pct = ((+masEmpleable.empleados / +masEmpleable.total) * 100).toFixed(1);
+          const nombre = masEmpleable.nombre_carrera
+            .replace('Ingeniería ', 'Ing. ')
+            .replace('Sistemas Computacionales (Presencial / Virtual)', 'Sistemas Comp.');
+          insights.push(['Carrera más empleable', `${nombre} tiene la tasa más alta de empleo: ${pct}% de sus egresados trabajan actualmente.`]);
+        }
+      }
+
+      // Tasa de titulación
+      const pctTit = ((+k.titulados / total) * 100).toFixed(1);
+      insights.push(['Tasa de titulación', `El ${pctTit}% de los egresados ya están titulados. ${k.en_tramite} tienen el proceso en trámite actualmente.`]);
+
+      // Nivel de inglés dominante
+      const nivelesIngles = (data.nivelesIngles || []);
+      if (nivelesIngles.length > 0) {
+        const dominante = nivelesIngles.reduce((a: any, b: any) => +b.total > +a.total ? b : a, nivelesIngles[0]);
+        const pctIng = ((+dominante.total / total) * 100).toFixed(1);
+        insights.push(['Nivel de inglés dominante', `El ${pctIng}% de los egresados tienen nivel ${dominante.nivel}. Considerar programas de mejora del idioma.`]);
+      }
+
+      // Alta satisfacción académica
+      if (+(k.satisfaccion_promedio) >= 4) {
+        insights.push(['Alta satisfacción académica', `La satisfacción promedio es ${(+(k.satisfaccion_promedio)).toFixed(2)}/5, lo que indica una percepción positiva de la formación recibida.`]);
+      }
+
+      // Egresados en el extranjero
+      const totalExt = (data.fueraMexico || []).reduce((s: number, f: any) => s + +f.total, 0);
+      if (totalExt > 0) {
+        insights.push(['Egresados en el extranjero', `${totalExt} egresado${totalExt > 1 ? 's' : ''} trabaja${totalExt === 1 ? '' : 'n'} fuera de México, presencia internacional del ITD.`]);
+      }
+
+      // Movilidad nacional
+      const totalFD = (data.fueraDurango || []).reduce((s: number, f: any) => s + +f.total, 0);
+      if (totalFD > 0) {
+        insights.push(['Movilidad nacional', `${totalFD} egresado${totalFD > 1 ? 's' : ''} trabaja${totalFD === 1 ? '' : 'n'} en otras ciudades de México fuera de Durango.`]);
+      }
+
+      const nextRow = this.excelTable(ws, ['Hallazgo', 'Descripción'], insights, 4);
+
+      // Estilo extra: alinear descripción a la izquierda y con wrap
+      for (let r = 5; r < nextRow; r++) {
+        const row = ws.getRow(r);
+        row.getCell(2).alignment = { vertical: 'middle', wrapText: true };
+        row.height = 30;
+      }
+    }
 
     return this.toBuffer(wb);
   }
@@ -338,13 +512,13 @@ export class ExportEstadisticasService {
     const k = data.kpis; const total = k.total_egresados || 1;
 
     let y = this.pdfPageHeader(doc, 'Empleabilidad', filtros, fecha);
-    y = this.pdfSection(doc, 'Indicadores de Empleabilidad', y);
+    y = this.pdfSection(doc, 'Indicadores de Empleabilidad', y, onNewPage);
     y = this.pdfTable(doc, ['Indicador', 'Valor'], [['Total Egresados', String(k.total_egresados)], ['Empleados', String(k.empleados)], ['Desempleados', String(k.desempleados)], ['% Empleados', `${((k.empleados / total) * 100).toFixed(1)}%`], ['Satisfacción Promedio', `${(+(k.satisfaccion_promedio) || 0).toFixed(2)} / 5`]], [260, 160], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Empleo por Carrera', y);
+    y = this.pdfSection(doc, 'Empleo por Carrera', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Total', 'Empleados', '% Emp.'], (data.empleabilidadCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.empleados), r.total > 0 ? `${((r.empleados / r.total) * 100).toFixed(1)}%` : '0%']), [220, 80, 80, 80], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Sector Laboral', y);
+    y = this.pdfSection(doc, 'Sector Laboral', y, onNewPage);
     y = this.pdfTable(doc, ['Sector', 'Total'], (data.sectorLaboral || []).map((r: any) => [r.sector || '—', String(r.total)]), [350, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Top Empresas', y);
+    y = this.pdfSection(doc, 'Top Empresas', y, onNewPage);
     y = this.pdfTable(doc, ['Empresa', 'Total'], (data.topEmpresas || []).map((r: any) => [r.empresa || '—', String(r.total)]), [350, 100], MARGIN_X, y, onNewPage);
     if ((data.coincidenciaCarrera || []).length > 0) { y = this.pdfSection(doc, 'Coincidencia con Carrera', y); y = this.pdfTable(doc, ['Carrera', 'Coincidencia', 'Total', '%'], (data.coincidenciaCarrera || []).map((r: any) => [r.nombre_carrera, r.coincidencia, String(r.total), `${(+(r.porcentaje) || 0).toFixed(1)}%`]), [220, 120, 80, 80], MARGIN_X, y, onNewPage); }
     if ((data.tiempoEmpleoCarrera || []).length > 0) { y = this.pdfSection(doc, 'Tiempo para Emplearse por Carrera', y); this.pdfTable(doc, ['Carrera', 'Total Egresados', 'Años Prom.'], (data.tiempoEmpleoCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total_egresados), `${(+(r.anios_promedio_para_emplearse) || 0).toFixed(2)} años`]), [280, 100, 120], MARGIN_X, y, onNewPage); }
@@ -375,13 +549,13 @@ export class ExportEstadisticasService {
     const k = data.kpis;
 
     let y = this.pdfPageHeader(doc, 'Titulación', filtros, fecha);
-    y = this.pdfSection(doc, 'Indicadores de Titulación', y);
+    y = this.pdfSection(doc, 'Indicadores de Titulación', y, onNewPage);
     y = this.pdfTable(doc, ['Indicador', 'Valor'], [['Total Egresados', String(k.total_egresados)], ['Titulados', String(k.titulados)], ['En Trámite', String(k.en_tramite)], ['No Titulados', String(k.no_titulados)]], [260, 160], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Titulación por Carrera', y);
+    y = this.pdfSection(doc, 'Titulación por Carrera', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Total', 'Titulados', 'Trámite', 'No Tit.', '% Tit.'], (data.titulacionCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.titulados), String(r.en_tramite), String(r.no_titulados), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]), [200, 65, 75, 75, 75, 75], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Titulación por Año', y);
+    y = this.pdfSection(doc, 'Titulación por Año', y, onNewPage);
     y = this.pdfTable(doc, ['Año', 'Total', 'Titulados', 'En Trámite', '% Tit.'], (data.titulacionAnio || []).map((r: any) => [String(r.anio_egreso), String(r.total), String(r.titulados), String(r.en_tramite), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]), [80, 80, 100, 100, 100], MARGIN_X, y, onNewPage);
-    if ((data.posgradoPorTipo || []).length > 0) { y = this.pdfSection(doc, 'Posgrado por Tipo', y); this.pdfTable(doc, ['Tipo de Posgrado', 'Total'], (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', String(r.total)]), [300, 100], MARGIN_X, y, onNewPage); }
+    if ((data.posgradoPorTipo || []).length > 0) { y = this.pdfSection(doc, 'Posgrado por Tipo', y, onNewPage); this.pdfTable(doc, ['Tipo de Posgrado', 'Total'], (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', String(r.total)]), [300, 100], MARGIN_X, y, onNewPage); }
     this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
   }
 
@@ -408,13 +582,13 @@ export class ExportEstadisticasService {
     const k = estadisticas.kpis;
 
     let y = this.pdfPageHeader(doc, 'Vinculación', filtros, fecha);
-    y = this.pdfSection(doc, 'Autorizaciones', y);
+    y = this.pdfSection(doc, 'Autorizaciones', y, onNewPage);
     y = this.pdfTable(doc, ['Tipo', 'Total'], [['Autorizó Contacto', String(k.autorizo_contacto)], ['Autorizó Eventos', String(k.autorizo_eventos)], ['Total Egresados', String(k.total_egresados)]], [260, 160], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Distribución de Satisfacción', y);
+    y = this.pdfSection(doc, 'Distribución de Satisfacción', y, onNewPage);
     y = this.pdfTable(doc, ['Nivel (1-5)', 'Total'], (satisfaccion || []).map((r: any) => [String(r.nivel), String(r.total)]), [200, 120], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Colaboraciones', y);
+    y = this.pdfSection(doc, 'Colaboraciones', y, onNewPage);
     y = this.pdfTable(doc, ['Tipo de Colaboración', 'Total'], (colaboraciones || []).map((r: any) => [r.descripcion || '—', String(r.total)]), [340, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Habilidades', y);
+    y = this.pdfSection(doc, 'Habilidades', y, onNewPage);
     this.pdfTable(doc, ['Habilidad', 'Total'], (habilidades || []).map((r: any) => [r.habilidad || '—', String(r.total)]), [340, 100], MARGIN_X, y, onNewPage);
     this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
   }
@@ -440,13 +614,13 @@ export class ExportEstadisticasService {
     const onNewPage = () => this.pdfNewPageWithSubtitle(doc, 'Comparativas entre Carreras');
 
     let y = this.pdfPageHeader(doc, 'Comparativas entre Carreras', filtros, fecha);
-    y = this.pdfSection(doc, 'Resumen por Carrera', y);
+    y = this.pdfSection(doc, 'Resumen por Carrera', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Total', '% Emp.', '% Tit.', 'Satisf.', '% F.Dgo.'], (data.resumen || []).map((r: any) => [r.nombre_carrera, String(r.total), `${(+(r.pct_empleados) || 0).toFixed(1)}%`, `${(+(r.pct_titulados) || 0).toFixed(1)}%`, (+(r.satisfaccion_promedio) || 0).toFixed(2), `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`]), [200, 60, 70, 70, 75, 85], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Empleo', y);
+    y = this.pdfSection(doc, 'Empleo', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Total', 'Empleados', 'Desempl.', '% Emp.'], (data.empleo || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.empleados), String(r.desempleados), `${(+(r.pct_empleados) || 0).toFixed(1)}%`]), [200, 70, 85, 85, 80], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Titulación', y);
+    y = this.pdfSection(doc, 'Titulación', y, onNewPage);
     y = this.pdfTable(doc, ['Carrera', 'Total', 'Titulados', 'Trámite', 'No Tit.', '% Tit.'], (data.titulacion || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.titulados), String(r.en_tramite), String(r.no_titulados), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]), [200, 65, 80, 80, 80, 80], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Migración', y);
+    y = this.pdfSection(doc, 'Migración', y, onNewPage);
     this.pdfTable(doc, ['Carrera', 'En Dgo.', 'Fuera Dgo.', 'Extranjero', '% F.Dgo.', '% Ext.'], (data.migracion || []).map((r: any) => [r.nombre_carrera, String(r.en_durango), String(r.fuera_durango_mexico), String(r.en_extranjero), `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`, `${(+(r.pct_extranjero) || 0).toFixed(1)}%`]), [200, 70, 90, 90, 80, 80], MARGIN_X, y, onNewPage);
     this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
   }
@@ -475,14 +649,14 @@ export class ExportEstadisticasService {
     const k = data.kpisGeo;
 
     let y = this.pdfPageHeader(doc, 'Distribución Geográfica', filtros, fecha);
-    y = this.pdfSection(doc, 'Indicadores Geográficos', y);
+    y = this.pdfSection(doc, 'Indicadores Geográficos', y, onNewPage);
     y = this.pdfTable(doc, ['Indicador', 'Valor'], [['Total Mapeados', String(k.total_mapeados)], ['Con Ciudad de Trabajo', String(k.con_ciudad_trabajo)], ['En Extranjero', String(k.en_extranjero)], ['Países Distintos', String(k.paises_distintos)], ['Ciudades de Trabajo Distintas', String(k.ciudades_trabajo_distintas)]], [300, 150], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Top Ciudades de Trabajo', y);
+    y = this.pdfSection(doc, 'Top Ciudades de Trabajo', y, onNewPage);
     y = this.pdfTable(doc, ['#', 'Ciudad', 'Total'], (data.topCiudadesTrabajo || []).map((r: any, i: number) => [String(i + 1), r.ciudad_trabajo || '—', String(r.total)]), [40, 330, 80], MARGIN_X, y, onNewPage);
     if ((data.extranjerosPorPais || []).length > 0) { y = this.pdfSection(doc, 'Extranjeros por País', y); y = this.pdfTable(doc, ['País', 'Total'], (data.extranjerosPorPais || []).map((r: any) => [r.pais || '—', String(r.total)]), [290, 100], MARGIN_X, y, onNewPage); }
-    y = this.pdfSection(doc, 'Movilidad por Año', y);
+    y = this.pdfSection(doc, 'Movilidad por Año', y, onNewPage);
     y = this.pdfTable(doc, ['Año', 'Total', 'Fuera Dgo.', 'Extranjero', '% F.Dgo.', '% Ext.'], (data.movilidadPorAnio || []).map((r: any) => [String(r.anio_egreso), String(r.total), String(r.fuera_durango), String(r.en_extranjero), `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`, `${(+(r.pct_extranjero) || 0).toFixed(1)}%`]), [70, 70, 90, 90, 90, 90], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Movilidad por Carrera', y);
+    y = this.pdfSection(doc, 'Movilidad por Carrera', y, onNewPage);
     this.pdfTable(doc, ['Carrera', 'Total', 'Fuera Durango', '% Fuera Dgo.'], (data.movilidadPorCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.fuera_durango), `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`]), [260, 70, 110, 110], MARGIN_X, y, onNewPage);
     this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
   }
@@ -510,15 +684,15 @@ export class ExportEstadisticasService {
     const onNewPage = () => this.pdfNewPageWithSubtitle(doc, 'Estadísticas por Género');
 
     let y = this.pdfPageHeader(doc, 'Estadísticas por Género', filtros, fecha);
-    y = this.pdfSection(doc, 'KPIs por Género', y);
+    y = this.pdfSection(doc, 'KPIs por Género', y, onNewPage);
     y = this.pdfTable(doc, ['Género', 'Total', 'Porcentaje'], (data.kpisGenero || []).map((r: any) => [r.genero, String(r.total), `${(+(r.porcentaje) || 0).toFixed(1)}%`]), [200, 100, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Empleabilidad por Género', y);
+    y = this.pdfSection(doc, 'Empleabilidad por Género', y, onNewPage);
     y = this.pdfTable(doc, ['Género', 'Total', 'Empleados', 'Desempl.', '% Emp.', 'Satisf.'], (data.empleabilidadGenero || []).map((r: any) => [r.genero, String(r.total), String(r.empleados), String(r.desempleados), `${(+(r.pct_empleados) || 0).toFixed(1)}%`, (+(r.satisfaccion_promedio) || 0).toFixed(2)]), [120, 70, 85, 85, 80, 80], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Titulación por Género', y);
+    y = this.pdfSection(doc, 'Titulación por Género', y, onNewPage);
     y = this.pdfTable(doc, ['Género', 'Total', 'Titulados', 'Trámite', 'No Tit.', '% Tit.'], (data.titulacionGenero || []).map((r: any) => [r.genero, String(r.total), String(r.titulados), String(r.en_tramite), String(r.no_titulados), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]), [120, 70, 90, 90, 90, 90], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Nivel de Inglés por Género', y);
+    y = this.pdfSection(doc, 'Nivel de Inglés por Género', y, onNewPage);
     y = this.pdfTable(doc, ['Género', 'Nivel', 'Total', 'Porcentaje'], (data.inglesGenero || []).map((r: any) => [r.genero, r.nivel, String(r.total), `${(+(r.porcentaje) || 0).toFixed(1)}%`]), [120, 180, 80, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Satisfacción por Género', y);
+    y = this.pdfSection(doc, 'Satisfacción por Género', y, onNewPage);
     this.pdfTable(doc, ['Género', 'Prom.', 'Total', 'M.Satis.', 'Satis.', 'Neutral', 'Insat.', 'M.Insat.'], (data.satisfaccionGenero || []).map((r: any) => [r.genero, (+(r.promedio) || 0).toFixed(2), String(r.total), String(r.muy_satisfecho), String(r.satisfecho), String(r.neutral), String(r.insatisfecho), String(r.muy_insatisfecho)]), [100, 65, 65, 80, 70, 70, 70, 80], MARGIN_X, y, onNewPage);
     this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
   }
