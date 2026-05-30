@@ -1055,7 +1055,7 @@ export class EgresadosService {
 
     return [
       ...fijas,
-      { descripcion: '__otro__', total: +otro.total || 0 },
+      { descripcion: 'Otro', total: +otro.total || 0 },
     ];
   }
 
@@ -1104,7 +1104,7 @@ export class EgresadosService {
 
     return [
       ...fijas,
-      { habilidad: '__otro__', total: +otro.total || 0 },
+      { habilidad: 'Otro', total: +otro.total || 0 },
     ];
   }
 

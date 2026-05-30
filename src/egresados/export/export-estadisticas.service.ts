@@ -1068,22 +1068,89 @@ export class ExportEstadisticasService {
   // PÁGINA 4 — Vinculación
 
   async exportarVinculacionPdf(carrera?: string, anio?: number): Promise<Buffer> {
-    const [estadisticas, satisfaccion, colaboraciones, habilidades] = await Promise.all([this.egresadosService.getEstadisticas(carrera, anio), this.egresadosService.getDistribucionSatisfaccion(carrera, anio), this.egresadosService.getTotalesColaboraciones(carrera, anio), this.egresadosService.getTotalesHabilidades(carrera, anio)]);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
-    const doc = this.pdfDoc(); const bufPromise = this.collectBuffer(doc);
-    const onNewPage = () => this.pdfNewPageWithSubtitle(doc, 'Vinculación');
+    const [estadisticas, satisfaccion, colaboraciones, habilidades] = await Promise.all([
+      this.egresadosService.getEstadisticas(carrera, anio),
+      this.egresadosService.getDistribucionSatisfaccion(carrera, anio),
+      this.egresadosService.getTotalesColaboraciones(carrera, anio),
+      this.egresadosService.getTotalesHabilidades(carrera, anio),
+    ]);
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
+    const doc = this.pdfDoc();
+    const bufPromise = this.collectBuffer(doc);
+
+    const onNewPage = () => this.pdfNewPage(doc);
+
     const k = estadisticas.kpis;
+    const total = k.total_egresados || 1;
 
     let y = this.pdfPageHeader(doc, 'Vinculación', filtros, fecha);
-    y = this.pdfSection(doc, 'Autorizaciones', y, onNewPage);
-    y = this.pdfTable(doc, ['Tipo', 'Total'], [['Autorizó Contacto', String(k.autorizo_contacto)], ['Autorizó Eventos', String(k.autorizo_eventos)], ['Total Egresados', String(k.total_egresados)]], [260, 160], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Distribución de Satisfacción', y, onNewPage);
-    y = this.pdfTable(doc, ['Nivel (1-5)', 'Total'], (satisfaccion || []).map((r: any) => [String(r.nivel), String(r.total)]), [200, 120], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Colaboraciones', y, onNewPage);
-    y = this.pdfTable(doc, ['Tipo de Colaboración', 'Total'], (colaboraciones || []).map((r: any) => [r.descripcion || '—', String(r.total)]), [340, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Habilidades', y, onNewPage);
-    this.pdfTable(doc, ['Habilidad', 'Total'], (habilidades || []).map((r: any) => [r.habilidad || '—', String(r.total)]), [340, 100], MARGIN_X, y, onNewPage);
-    this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
+
+    // 1) Indicadores Generales
+    y = this.pdfSection(doc, 'Indicadores Generales', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Indicador', 'Valor'],
+      [
+        ['Total Egresados', String(k.total_egresados)],
+        ['Autorizó Contacto', String(k.autorizo_contacto)],
+        ['Autorizó Eventos', String(k.autorizo_eventos)],
+        ['% Autorizó Contacto', `${((k.autorizo_contacto / total) * 100).toFixed(1)}%`],
+        ['% Autorizó Eventos', `${((k.autorizo_eventos / total) * 100).toFixed(1)}%`],
+        ['Satisfacción Promedio', `${(+(k.satisfaccion_promedio) || 0).toFixed(2)} / 5`],
+      ],
+      [280, 160], MARGIN_X, y, onNewPage,
+    );
+
+    // 2) Satisfacción con la Formación — ITD
+    y = this.pdfSection(doc, 'Satisfacción con la Formación — ITD', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Nivel (1-5)', 'Total', '%'],
+      (satisfaccion || [])
+        .sort((a: any, b: any) => Number(b.nivel) - Number(a.nivel))
+        .map((r: any) => {
+          const pct = total > 0 ? ((+r.total / total) * 100).toFixed(1) : '0';
+          return [String(r.nivel), String(r.total), `${pct}%`];
+        }),
+      [120, 100, 100], MARGIN_X, y, onNewPage,
+    );
+
+    // 3) Interés en Colaborar
+    y = this.pdfSection(doc, 'Interés en Colaborar', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Tipo de Colaboración', 'Total'],
+      (colaboraciones || []).map((r: any) => [r.descripcion || '—', String(r.total)]),
+      [380, 100], MARGIN_X, y, onNewPage,
+    );
+
+    // 4) Autorización de Datos
+    y = this.pdfSection(doc, 'Autorización de Datos', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Tipo', 'Total', '%'],
+      [
+        ['Autorizó Contacto', String(k.autorizo_contacto), `${((k.autorizo_contacto / total) * 100).toFixed(1)}%`],
+        ['No autorizó Contacto', String(k.total_egresados - k.autorizo_contacto), `${(((k.total_egresados - k.autorizo_contacto) / total) * 100).toFixed(1)}%`],
+        ['Autorizó Eventos', String(k.autorizo_eventos), `${((k.autorizo_eventos / total) * 100).toFixed(1)}%`],
+        ['No autorizó Eventos', String(k.total_egresados - k.autorizo_eventos), `${(((k.total_egresados - k.autorizo_eventos) / total) * 100).toFixed(1)}%`],
+      ],
+      [260, 100, 100], MARGIN_X, y, onNewPage,
+    );
+
+    // 5) Habilidades a Reforzar
+    y = this.pdfSection(doc, 'Habilidades a Reforzar', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Habilidad', 'Total'],
+      (habilidades || []).map((r: any) => [r.habilidad || '—', String(r.total)]),
+      [380, 100], MARGIN_X, y, onNewPage,
+    );
+
+    this.pdfFooter(doc, fecha);
+    doc.end();
+    return bufPromise;
   }
 
   async exportarVinculacionExcel(carrera?: string, anio?: number): Promise<Buffer> {
@@ -1136,35 +1203,183 @@ export class ExportEstadisticasService {
 
   async exportarGeografiaPdf(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getDistribucionGeografica(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
-    const doc = this.pdfDoc(); const bufPromise = this.collectBuffer(doc);
-    const onNewPage = () => this.pdfNewPageWithSubtitle(doc, 'Distribución Geográfica');
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
+    const doc = this.pdfDoc();
+    const bufPromise = this.collectBuffer(doc);
+
+    const onNewPage = () => this.pdfNewPage(doc);
+
     const k = data.kpisGeo;
 
     let y = this.pdfPageHeader(doc, 'Distribución Geográfica', filtros, fecha);
+
+    // 1) Indicadores Geográficos
     y = this.pdfSection(doc, 'Indicadores Geográficos', y, onNewPage);
-    y = this.pdfTable(doc, ['Indicador', 'Valor'], [['Total Mapeados', String(k.total_mapeados)], ['Con Ciudad de Trabajo', String(k.con_ciudad_trabajo)], ['En Extranjero', String(k.en_extranjero)], ['Países Distintos', String(k.paises_distintos)], ['Ciudades de Trabajo Distintas', String(k.ciudades_trabajo_distintas)]], [300, 150], MARGIN_X, y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Indicador', 'Valor'],
+      [
+        ['Total Mapeados', String(k.total_mapeados)],
+        ['Con Ciudad de Trabajo', String(k.con_ciudad_trabajo)],
+        ['En Extranjero', String(k.en_extranjero)],
+        ['Países Distintos', String(k.paises_distintos)],
+        ['Ciudades de Trabajo Distintas', String(k.ciudades_trabajo_distintas)],
+      ],
+      [300, 150], MARGIN_X, y, onNewPage,
+    );
+
+    // 2) Top Ciudades de Trabajo
     y = this.pdfSection(doc, 'Top Ciudades de Trabajo', y, onNewPage);
-    y = this.pdfTable(doc, ['#', 'Ciudad', 'Total'], (data.topCiudadesTrabajo || []).map((r: any, i: number) => [String(i + 1), r.ciudad_trabajo || '—', String(r.total)]), [40, 330, 80], MARGIN_X, y, onNewPage);
-    if ((data.extranjerosPorPais || []).length > 0) { y = this.pdfSection(doc, 'Extranjeros por País', y); y = this.pdfTable(doc, ['País', 'Total'], (data.extranjerosPorPais || []).map((r: any) => [r.pais || '—', String(r.total)]), [290, 100], MARGIN_X, y, onNewPage); }
-    y = this.pdfSection(doc, 'Movilidad por Año', y, onNewPage);
-    y = this.pdfTable(doc, ['Año', 'Total', 'Fuera Dgo.', 'Extranjero', '% F.Dgo.', '% Ext.'], (data.movilidadPorAnio || []).map((r: any) => [String(r.anio_egreso), String(r.total), String(r.fuera_durango), String(r.en_extranjero), `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`, `${(+(r.pct_extranjero) || 0).toFixed(1)}%`]), [70, 70, 90, 90, 90, 90], MARGIN_X, y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['#', 'Ciudad', 'Total'],
+      (data.topCiudadesTrabajo || []).map((r: any, i: number) => [
+        String(i + 1),
+        r.ciudad_trabajo || '—',
+        String(r.total),
+      ]),
+      [40, 330, 80], MARGIN_X, y, onNewPage,
+    );
+
+    // 3) Egresados en el Extranjero por País
+    if ((data.extranjerosPorPais || []).length > 0) {
+      y = this.pdfSection(doc, 'Egresados en el Extranjero por País', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['País', 'Total'],
+        (data.extranjerosPorPais || []).map((r: any) => [r.pais || '—', String(r.total)]),
+        [290, 100], MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // 4) Movilidad por Año de Egreso
+    y = this.pdfSection(doc, 'Movilidad por Año de Egreso', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Año', 'Total', 'Fuera Dgo.', 'Extranjero', '% F.Dgo.', '% Ext.'],
+      (data.movilidadPorAnio || [])
+        .sort((a: any, b: any) => Number(a.anio_egreso) - Number(b.anio_egreso))
+        .map((r: any) => [
+          String(r.anio_egreso),
+          String(r.total),
+          String(r.fuera_durango),
+          String(r.en_extranjero),
+          `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`,
+          `${(+(r.pct_extranjero) || 0).toFixed(1)}%`,
+        ]),
+      [70, 70, 90, 90, 90, 90], MARGIN_X, y, onNewPage,
+    );
+
+    // 5) Movilidad por Carrera
     y = this.pdfSection(doc, 'Movilidad por Carrera', y, onNewPage);
-    this.pdfTable(doc, ['Carrera', 'Total', 'Fuera Durango', '% Fuera Dgo.'], (data.movilidadPorCarrera || []).map((r: any) => [r.nombre_carrera, String(r.total), String(r.fuera_durango), `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`]), [260, 70, 110, 110], MARGIN_X, y, onNewPage);
-    this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Total', 'Fuera Durango', '% Fuera Dgo.'],
+      (data.movilidadPorCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        String(r.total),
+        String(r.fuera_durango),
+        `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`,
+      ]),
+      [260, 70, 110, 110], MARGIN_X, y, onNewPage,
+    );
+
+    this.pdfFooter(doc, fecha);
+    doc.end();
+    return bufPromise;
   }
 
   async exportarGeografiaExcel(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getDistribucionGeografica(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
     const { wb, addSheet } = this.makeWorkbook('Distribución Geográfica', filtros, fecha, () => 0);
     const k = data.kpisGeo;
-    { const ws = addSheet('KPIs', 2, 'Distribución Geográfica — KPIs'); ws.columns = [{ key: 'ind', width: 35 }, { key: 'val', width: 20 }]; this.excelTable(ws, ['Indicador', 'Valor'], [['Total Mapeados', k.total_mapeados], ['Con Ciudad de Trabajo', k.con_ciudad_trabajo], ['En Extranjero', k.en_extranjero], ['Países Distintos', k.paises_distintos], ['Ciudades de Trabajo Distintas', k.ciudades_trabajo_distintas]], 4); }
-    { const ws = addSheet('Top Ciudades', 3, 'Top Ciudades de Trabajo'); ws.columns = [{ key: 'r', width: 12 }, { key: 'c', width: 35 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Ranking', 'Ciudad de Trabajo', 'Total'], (data.topCiudadesTrabajo || []).map((r: any, i: number) => [i + 1, r.ciudad_trabajo, r.total]), 4); }
-    { const ws = addSheet('Extranjeros País', 2, 'Egresados en el Extranjero por País'); ws.columns = [{ key: 'p', width: 30 }, { key: 't', width: 15 }]; this.excelTable(ws, ['País', 'Total'], (data.extranjerosPorPais || []).map((r: any) => [r.pais, r.total]), 4); }
-    { const ws = addSheet('Detalle Extranjeros', 3, 'Detalle de Egresados en el Extranjero'); ws.columns = [{ key: 'c', width: 30 }, { key: 'p', width: 25 }, { key: 't', width: 15 }]; this.excelTable(ws, ['Ciudad', 'País', 'Total'], (data.extranjerosDetalle || []).map((r: any) => [r.ciudad_trabajo, r.pais, r.total]), 4); }
-    { const ws = addSheet('Movilidad Año', 6, 'Movilidad por Año de Egreso'); ws.columns = [{ key: 'a', width: 12 }, { key: 't', width: 12 }, { key: 'fd', width: 18 }, { key: 'ex', width: 16 }, { key: 'pfd', width: 18 }, { key: 'pex', width: 16 }]; this.excelTable(ws, ['Año', 'Total', 'Fuera Durango', 'En Extranjero', '% Fuera Durango', '% Extranjero'], (data.movilidadPorAnio || []).map((r: any) => [r.anio_egreso, r.total, r.fuera_durango, r.en_extranjero, r.pct_fuera_durango, r.pct_extranjero]), 4); }
-    { const ws = addSheet('Movilidad Carrera', 4, 'Movilidad por Carrera'); ws.columns = [{ key: 'c', width: 35 }, { key: 't', width: 12 }, { key: 'fd', width: 18 }, { key: 'p', width: 18 }]; this.excelTable(ws, ['Carrera', 'Total', 'Fuera Durango', '% Fuera Durango'], (data.movilidadPorCarrera || []).map((r: any) => [r.nombre_carrera, r.total, r.fuera_durango, r.pct_fuera_durango]), 4); }
+
+    // 1) Indicadores Geográficos
+    {
+      const ws = addSheet('Indicadores', 2, 'Indicadores Geográficos');
+      ws.columns = [{ key: 'ind', width: 35 }, { key: 'val', width: 20 }];
+      this.excelTable(ws, ['Indicador', 'Valor'], [
+        ['Total Mapeados', k.total_mapeados],
+        ['Con Ciudad de Trabajo', k.con_ciudad_trabajo],
+        ['En Extranjero', k.en_extranjero],
+        ['Países Distintos', k.paises_distintos],
+        ['Ciudades de Trabajo Distintas', k.ciudades_trabajo_distintas],
+      ], 4);
+    }
+
+    // 2) Top Ciudades de Trabajo
+    {
+      const ws = addSheet('Top Ciudades', 3, 'Top Ciudades de Trabajo');
+      ws.columns = [{ key: 'r', width: 12 }, { key: 'c', width: 35 }, { key: 't', width: 15 }];
+      this.excelTable(ws, ['Ranking', 'Ciudad de Trabajo', 'Total'],
+        (data.topCiudadesTrabajo || []).map((r: any, i: number) => [i + 1, r.ciudad_trabajo || '—', r.total]),
+        4,
+      );
+    }
+
+    // 3) Egresados en el Extranjero por País
+    {
+      const ws = addSheet('Extranjeros por País', 2, 'Egresados en el Extranjero por País');
+      ws.columns = [{ key: 'p', width: 30 }, { key: 't', width: 15 }];
+      this.excelTable(ws, ['País', 'Total'],
+        (data.extranjerosPorPais || []).map((r: any) => [r.pais || '—', r.total]),
+        4,
+      );
+    }
+
+    // 4) Movilidad por Año de Egreso
+    {
+      const ws = addSheet('Movilidad por Año', 6, 'Movilidad por Año de Egreso');
+      ws.columns = [
+        { key: 'a', width: 12 },
+        { key: 't', width: 12 },
+        { key: 'fd', width: 18 },
+        { key: 'ex', width: 16 },
+        { key: 'pfd', width: 18 },
+        { key: 'pex', width: 16 },
+      ];
+      this.excelTable(
+        ws,
+        ['Año', 'Total', 'Fuera Durango', 'En Extranjero', '% Fuera Durango', '% Extranjero'],
+        [...(data.movilidadPorAnio || [])]
+          .sort((a: any, b: any) => Number(a.anio_egreso) - Number(b.anio_egreso))
+          .map((r: any) => [
+            r.anio_egreso,
+            r.total,
+            r.fuera_durango,
+            r.en_extranjero,
+            +(+(r.pct_fuera_durango) || 0).toFixed(2),
+            +(+(r.pct_extranjero) || 0).toFixed(2),
+          ]),
+        4,
+      );
+    }
+
+    // 5) Movilidad por Carrera
+    {
+      const ws = addSheet('Movilidad por Carrera', 4, 'Movilidad por Carrera');
+      ws.columns = [
+        { key: 'c', width: 38 },
+        { key: 't', width: 12 },
+        { key: 'fd', width: 18 },
+        { key: 'p', width: 18 },
+      ];
+      this.excelTable(
+        ws,
+        ['Carrera', 'Total', 'Fuera Durango', '% Fuera Durango'],
+        (data.movilidadPorCarrera || []).map((r: any) => [
+          r.nombre_carrera,
+          r.total,
+          r.fuera_durango,
+          +(+(r.pct_fuera_durango) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
     return this.toBuffer(wb);
   }
 
@@ -1172,39 +1387,800 @@ export class ExportEstadisticasService {
 
   async exportarGenerosPdf(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticasGenero(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
-    const doc = this.pdfDoc(); const bufPromise = this.collectBuffer(doc);
-    const onNewPage = () => this.pdfNewPageWithSubtitle(doc, 'Estadísticas por Género');
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
+    const doc = this.pdfDoc();
+    const bufPromise = this.collectBuffer(doc);
+
+    // Sin título repetido en páginas adicionales
+    const onNewPage = () => this.pdfNewPage(doc);
 
     let y = this.pdfPageHeader(doc, 'Estadísticas por Género', filtros, fecha);
-    y = this.pdfSection(doc, 'KPIs por Género', y, onNewPage);
-    y = this.pdfTable(doc, ['Género', 'Total', 'Porcentaje'], (data.kpisGenero || []).map((r: any) => [r.genero, String(r.total), `${(+(r.porcentaje) || 0).toFixed(1)}%`]), [200, 100, 100], MARGIN_X, y, onNewPage);
+
+    // 1) Indicadores Generales
+    y = this.pdfSection(doc, 'Indicadores Generales', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Total', 'Porcentaje'],
+      (data.kpisGenero || []).map((r: any) => [
+        r.genero, String(r.total), `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+      ]),
+      [200, 100, 100], MARGIN_X, y, onNewPage,
+    );
+
+    // 2) Egresados por Año (H vs M)
+    y = this.pdfSection(doc, 'Egresados por Año (Hombres vs Mujeres)', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Año', 'Género', 'Total', '% en Año'],
+      (data.egresoAnioGenero || []).map((r: any) => [
+        String(r.anio_egreso), r.genero, String(r.total),
+        `${(+(r.porcentaje_en_anio) || 0).toFixed(1)}%`,
+      ]),
+      [70, 100, 70, 80], MARGIN_X, y, onNewPage,
+    );
+
+    // 3) Tendencia H/M por Año (pivoteada: una fila por año, col H y col M)
+    y = this.pdfSection(doc, 'Tendencia H/M por Año', y, onNewPage);
+    const tendenciaMap = new Map<string, Record<string, number>>();
+    for (const r of data.egresoAnioGenero || []) {
+      if (!tendenciaMap.has(String(r.anio_egreso)))
+        tendenciaMap.set(String(r.anio_egreso), {});
+      tendenciaMap.get(String(r.anio_egreso))![r.genero] = Number(r.total);
+    }
+    const tendenciaRows = [...tendenciaMap.entries()]
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([anio, g]) => {
+        const h = g['Hombre'] ?? g['Masculino'] ?? 0;
+        const m = g['Mujer'] ?? g['Femenino'] ?? 0;
+        const t = h + m;
+        return [
+          anio,
+          String(h),
+          String(m),
+          String(t),
+          t > 0 ? `${((m / t) * 100).toFixed(1)}%` : '0%',
+        ];
+      });
+    y = this.pdfTable(
+      doc,
+      ['Año', 'Hombres', 'Mujeres', 'Total', '% Mujeres'],
+      tendenciaRows,
+      [70, 90, 90, 70, 90], MARGIN_X, y, onNewPage,
+    );
+
+    // 4) Ranking por Feminización (% mujeres por carrera, de mayor a menor)
+    y = this.pdfSection(doc, 'Ranking por Feminización', y, onNewPage);
+    const femMap = new Map<string, { h: number; m: number }>();
+    for (const r of data.composicionCarreraGenero || []) {
+      if (!femMap.has(r.nombre_carrera))
+        femMap.set(r.nombre_carrera, { h: 0, m: 0 });
+      const entry = femMap.get(r.nombre_carrera)!;
+      const esMujer = r.genero === 'Mujer' || r.genero === 'Femenino';
+      if (esMujer) entry.m += Number(r.total);
+      else entry.h += Number(r.total);
+    }
+    const rankingRows = [...femMap.entries()]
+      .map(([carrera, g]) => {
+        const t = g.h + g.m;
+        const pctM = t > 0 ? (g.m / t) * 100 : 0;
+        return { carrera, h: g.h, m: g.m, t, pctM };
+      })
+      .sort((a, b) => b.pctM - a.pctM)
+      .map((r, i) => [
+        String(i + 1), r.carrera, String(r.h), String(r.m), String(r.t),
+        `${r.pctM.toFixed(1)}%`,
+      ]);
+    y = this.pdfTable(
+      doc,
+      ['#', 'Carrera', 'Hombres', 'Mujeres', 'Total', '% Mujeres'],
+      rankingRows,
+      [30, 190, 75, 75, 65, 90], MARGIN_X, y, onNewPage,
+    );
+
+    // 5) Composición H/M por Carrera
+    y = this.pdfSection(doc, 'Composición H/M por Carrera', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Género', 'Total', '%'],
+      (data.composicionCarreraGenero || []).map((r: any) => [
+        r.nombre_carrera, r.genero, String(r.total),
+        `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+      ]),
+      [220, 90, 65, 65], MARGIN_X, y, onNewPage,
+    );
+
+    // 6) Empleabilidad por Género (Tasa de empleo)
     y = this.pdfSection(doc, 'Empleabilidad por Género', y, onNewPage);
-    y = this.pdfTable(doc, ['Género', 'Total', 'Empleados', 'Desempl.', '% Emp.', 'Satisf.'], (data.empleabilidadGenero || []).map((r: any) => [r.genero, String(r.total), String(r.empleados), String(r.desempleados), `${(+(r.pct_empleados) || 0).toFixed(1)}%`, (+(r.satisfaccion_promedio) || 0).toFixed(2)]), [120, 70, 85, 85, 80, 80], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Titulación por Género', y, onNewPage);
-    y = this.pdfTable(doc, ['Género', 'Total', 'Titulados', 'Trámite', 'No Tit.', '% Tit.'], (data.titulacionGenero || []).map((r: any) => [r.genero, String(r.total), String(r.titulados), String(r.en_tramite), String(r.no_titulados), `${(+(r.pct_titulados) || 0).toFixed(1)}%`]), [120, 70, 90, 90, 90, 90], MARGIN_X, y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Total', 'Empleados', 'Desempl.', '% Emp.', 'Satisf.'],
+      (data.empleabilidadGenero || []).map((r: any) => [
+        r.genero, String(r.total), String(r.empleados), String(r.desempleados),
+        `${(+(r.pct_empleados) || 0).toFixed(1)}%`,
+        (+(r.satisfaccion_promedio) || 0).toFixed(2),
+      ]),
+      [100, 65, 80, 80, 75, 75], MARGIN_X, y, onNewPage,
+    );
+
+    // 7) Sector de Trabajo
+    y = this.pdfSection(doc, 'Sector de Trabajo por Género', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Sector', 'Total', '%'],
+      (data.sectorLaboralGenero || []).map((r: any) => [
+        r.genero, r.sector || '—', String(r.total),
+        `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+      ]),
+      [90, 220, 65, 65], MARGIN_X, y, onNewPage,
+    );
+
+    // 8) Coincidencia y Tiempo
+    y = this.pdfSection(doc, 'Coincidencia Laboral y Tiempo para Emplearse', y, onNewPage);
+
+    // Tiempo por género
+    const tiempoMap = new Map<string, string>();
+    for (const t of data.tiempoEmpleoGenero || []) {
+      tiempoMap.set(t.genero, `${(+(t.tiempo_promedio_anios) || 0).toFixed(1)} años`);
+    }
+    // Coincidencia positiva por género
+    const coincPosGenero = new Map<string, number>();
+    const coincTotalGenero = new Map<string, number>();
+    for (const c of data.coincidenciaLaboralGenero || []) {
+      coincTotalGenero.set(c.genero, (coincTotalGenero.get(c.genero) || 0) + Number(c.total));
+      const esPos =
+        c.coincidencia?.toLowerCase().includes('alta') ||
+        c.coincidencia?.toLowerCase().includes('totalmente') ||
+        c.coincidencia?.toLowerCase().includes('relacionad') ||
+        c.coincidencia?.toLowerCase().includes('gran medida');
+      if (esPos)
+        coincPosGenero.set(c.genero, (coincPosGenero.get(c.genero) || 0) + Number(c.total));
+    }
+    const coincidenciaRows = (data.kpisGenero || []).map((r: any) => {
+      const ct = coincTotalGenero.get(r.genero) || 0;
+      const cp = coincPosGenero.get(r.genero) || 0;
+      return [
+        r.genero,
+        tiempoMap.get(r.genero) || '—',
+        ct > 0 ? `${Math.round((cp / ct) * 100)}%` : '—',
+      ];
+    });
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Tiempo Prom. Empleo', '% Coincidencia Positiva'],
+      coincidenciaRows,
+      [100, 160, 180], MARGIN_X, y, onNewPage,
+    );
+
+    // 9) ¿Quién Emigra Más?
+    y = this.pdfSection(doc, '¿Quién Emigra Más?', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Total', 'En Durango', 'Fuera Dgo.', 'Extranjero', '% Fuera Dgo.'],
+      (data.geografiaGenero || []).map((r: any) => [
+        r.genero, String(r.total), String(r.en_durango),
+        String(r.fuera_durango_mexico), String(r.en_extranjero),
+        `${(+(r.pct_fuera_durango) || 0).toFixed(1)}%`,
+      ]),
+      [90, 60, 90, 90, 90, 110], MARGIN_X, y, onNewPage,
+    );
+
+    // 10) Top Ciudades por Género
+    y = this.pdfSection(doc, 'Top Ciudades de Trabajo por Género', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Ciudad', 'Total'],
+      (data.topCiudadesGenero || []).slice(0, 20).map((r: any) => [
+        r.genero, r.ciudad_trabajo || '—', String(r.total),
+      ]),
+      [90, 280, 80], MARGIN_X, y, onNewPage,
+    );
+
+    // 11) % Titulados por Género
+    y = this.pdfSection(doc, '% Titulados por Género', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Total', 'Titulados', 'En Trámite', 'No Tit.', '% Tit.'],
+      (data.titulacionGenero || []).map((r: any) => [
+        r.genero, String(r.total), String(r.titulados),
+        String(r.en_tramite), String(r.no_titulados),
+        `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+      ]),
+      [90, 65, 85, 90, 80, 80], MARGIN_X, y, onNewPage,
+    );
+
+    // 12) Titulación por Año y Género
+    y = this.pdfSection(doc, 'Titulación por Año y Género', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Año', 'Género', 'Total', 'Titulados', '% Tit.'],
+      (data.titulacionAnioGenero || []).map((r: any) => [
+        String(r.anio_egreso), r.genero, String(r.total),
+        String(r.titulados), `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+      ]),
+      [65, 90, 65, 80, 80], MARGIN_X, y, onNewPage,
+    );
+
+    // 13) ¿Quién Continúa Estudiando?
+    if (!carrera) {
+      y = this.pdfSection(doc, '¿Quién Continúa Estudiando? (Posgrado)', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Género', 'Total en Posgrado'],
+        (data.posgradoGenero || []).map((r: any) => [r.genero, String(r.total)]),
+        [150, 150], MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // 14) Tipo de Posgrado por Género
+    if (!carrera) {
+      y = this.pdfSection(doc, 'Tipo de Posgrado por Género', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Género', 'Tipo de Posgrado', 'Total', '%'],
+        (data.posgradoTipoGenero || []).map((r: any) => [
+          r.genero, r.tipo_posgrado || '—', String(r.total),
+          `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+        ]),
+        [90, 220, 65, 65], MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // 15) Nivel de Inglés por Género
     y = this.pdfSection(doc, 'Nivel de Inglés por Género', y, onNewPage);
-    y = this.pdfTable(doc, ['Género', 'Nivel', 'Total', 'Porcentaje'], (data.inglesGenero || []).map((r: any) => [r.genero, r.nivel, String(r.total), `${(+(r.porcentaje) || 0).toFixed(1)}%`]), [120, 180, 80, 100], MARGIN_X, y, onNewPage);
-    y = this.pdfSection(doc, 'Satisfacción por Género', y, onNewPage);
-    this.pdfTable(doc, ['Género', 'Prom.', 'Total', 'M.Satis.', 'Satis.', 'Neutral', 'Insat.', 'M.Insat.'], (data.satisfaccionGenero || []).map((r: any) => [r.genero, (+(r.promedio) || 0).toFixed(2), String(r.total), String(r.muy_satisfecho), String(r.satisfecho), String(r.neutral), String(r.insatisfecho), String(r.muy_insatisfecho)]), [100, 65, 65, 80, 70, 70, 70, 80], MARGIN_X, y, onNewPage);
-    this.pdfFooter(doc, fecha); doc.end(); return bufPromise;
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Nivel', 'Total', '%'],
+      (data.inglesGenero || []).map((r: any) => [
+        r.genero, r.nivel || '—', String(r.total),
+        `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+      ]),
+      [90, 200, 65, 75], MARGIN_X, y, onNewPage,
+    );
+
+    // 16) Satisfacción Promedio
+    y = this.pdfSection(doc, 'Satisfacción Promedio por Género', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Prom.', 'Total', 'M.Satis.', 'Satis.', 'Neutral', 'Insat.', 'M.Insat.'],
+      (data.satisfaccionGenero || []).map((r: any) => [
+        r.genero, (+(r.promedio) || 0).toFixed(2), String(r.total),
+        String(r.muy_satisfecho), String(r.satisfecho),
+        String(r.neutral), String(r.insatisfecho), String(r.muy_insatisfecho),
+      ]),
+      [90, 55, 55, 75, 70, 70, 65, 75], MARGIN_X, y, onNewPage,
+    );
+
+    // 17) Habilidades que Faltaron
+    y = this.pdfSection(doc, 'Habilidades que Faltaron por Género', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Género', 'Habilidad', 'Total', '%'],
+      (data.habilidadesGenero || []).map((r: any) => [
+        r.genero, r.habilidad || '—', String(r.total),
+        `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+      ]),
+      [90, 230, 65, 65], MARGIN_X, y, onNewPage,
+    );
+
+    // 18) Hallazgos Destacados
+    const insights: { titulo: string; descripcion: string }[] = [];
+
+    // Brecha de empleabilidad
+    const empG = data.empleabilidadGenero || [];
+    if (empG.length >= 2) {
+      const sorted = [...empG].sort((a: any, b: any) => +(b.pct_empleados) - +(a.pct_empleados));
+      const diff = Math.abs(+(sorted[0].pct_empleados) - +(sorted[sorted.length - 1].pct_empleados));
+      if (diff > 2) {
+        insights.push({
+          titulo: 'Brecha de empleo',
+          descripcion: `${sorted[0].genero} tiene mayor tasa de empleo (${sorted[0].pct_empleados}%) vs ${sorted[sorted.length - 1].genero} (${sorted[sorted.length - 1].pct_empleados}%). Diferencia: ${diff.toFixed(1)}pp.`,
+        });
+      }
+    }
+
+    // Brecha de titulación
+    const titG = data.titulacionGenero || [];
+    if (titG.length >= 2) {
+      const sorted = [...titG].sort((a: any, b: any) => +(b.pct_titulados) - +(a.pct_titulados));
+      const diff = Math.abs(+(sorted[0].pct_titulados) - +(sorted[sorted.length - 1].pct_titulados));
+      if (diff > 2) {
+        insights.push({
+          titulo: 'Titulación',
+          descripcion: `${sorted[0].genero} titula más (${sorted[0].pct_titulados}%) vs ${sorted[sorted.length - 1].genero} (${sorted[sorted.length - 1].pct_titulados}%). Diferencia: ${diff.toFixed(1)}pp.`,
+        });
+      }
+    }
+
+    // Posgrado — solo sin filtro de carrera
+    if (!carrera) {
+      const posG = data.posgradoGenero || [];
+      if (posG.length >= 2) {
+        const sorted = [...posG].sort((a: any, b: any) => +(b.total) - +(a.total));
+        const totalPos = posG.reduce((s: number, r: any) => s + +r.total, 0);
+        const topPos = sorted[0];
+        const pctTop = totalPos > 0 ? ((+topPos.total / totalPos) * 100).toFixed(1) : '0';
+        insights.push({
+          titulo: 'Posgrado',
+          descripcion: `${topPos.genero} tiene mayor continuidad en posgrado: ${pctTop}%.`,
+        });
+      }
+    }
+
+    // Movilidad geográfica
+    const geoG = data.geografiaGenero || [];
+    if (geoG.length >= 2) {
+      const sorted = [...geoG].sort((a: any, b: any) => +(b.pct_fuera_durango) - +(a.pct_fuera_durango));
+      insights.push({
+        titulo: 'Movilidad geográfica',
+        descripcion: `${sorted[0].genero} tiene mayor movilidad fuera de Durango. H: ${(+(geoG.find((r: any) => r.genero === 'Hombre' || r.genero === 'Masculino')?.pct_fuera_durango) || 0).toFixed(0)}% · M: ${(+(geoG.find((r: any) => r.genero === 'Mujer' || r.genero === 'Femenino')?.pct_fuera_durango) || 0).toFixed(0)}%`,
+      });
+    }
+
+    // Satisfacción académica
+    const satG = data.satisfaccionGenero || [];
+    if (satG.length >= 2) {
+      const sorted = [...satG].sort((a: any, b: any) => +(b.promedio) - +(a.promedio));
+      const diff = Math.abs(+(sorted[0].promedio) - +(sorted[sorted.length - 1].promedio));
+      if (diff > 0.05) {
+        const h = satG.find((r: any) => r.genero === 'Hombre' || r.genero === 'Masculino');
+        const m = satG.find((r: any) => r.genero === 'Mujer' || r.genero === 'Femenino');
+        insights.push({
+          titulo: 'Satisfacción académica',
+          descripcion: `${sorted[0].genero} reporta mayor satisfacción. H: ${(+(h?.promedio) || 0).toFixed(2)}/5 · M: ${(+(m?.promedio) || 0).toFixed(2)}/5`,
+        });
+      }
+    }
+
+    // Carrera más feminizada — solo sin filtro de carrera
+    if (!carrera && rankingRows.length > 0) {
+      const top = rankingRows[0];
+      insights.push({
+        titulo: 'Carrera más feminizada',
+        descripcion: `${top[1]} tiene el mayor porcentaje de mujeres: ${top[5]} de sus egresados.`,
+      });
+    }
+
+    if (insights.length > 0) {
+      y += 8;
+      // Solo verifica que haya espacio para el título + 1 bloque
+      if (y + 14 + 35 > PAGE_MAX_Y) y = onNewPage();
+      doc.fontSize(9).fillColor(VINO).font('Helvetica-Bold')
+        .text('Hallazgos Destacados', MARGIN_X, y);
+      y += 14;
+
+      insights.forEach((insight) => {
+        if (y + 36 > PAGE_MAX_Y) y = onNewPage();
+        const BLOCK_W = 780;
+        const BLOCK_H = 32;
+        doc.rect(MARGIN_X, y, BLOCK_W, BLOCK_H).fill('#FDF2F6');
+        doc.moveTo(MARGIN_X, y).lineTo(MARGIN_X + BLOCK_W, y)
+          .strokeColor('#E5E7EB').lineWidth(0.4).stroke();
+        doc.rect(MARGIN_X, y, 4, BLOCK_H).fill(VINO);
+        doc.fontSize(8).fillColor(VINO).font('Helvetica-Bold')
+          .text(insight.titulo, MARGIN_X + 12, y + 5, { width: 200, lineBreak: false });
+        doc.fontSize(7).fillColor('#374151').font('Helvetica')
+          .text(insight.descripcion, MARGIN_X + 12, y + 17, { width: 755, lineBreak: false, ellipsis: true });
+        y += BLOCK_H + 3;
+      });
+    }
+
+    this.pdfFooter(doc, fecha);
+    doc.end();
+    return bufPromise;
   }
 
   async exportarGenerosExcel(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getEstadisticasGenero(carrera, anio);
-    const fecha = this.fechaStr(); const filtros = this.filtroDesc(carrera, anio);
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
     const { wb, addSheet } = this.makeWorkbook('Estadísticas por Género', filtros, fecha, () => 0);
-    { const ws = addSheet('KPIs Género', 3, 'KPIs por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 't', width: 15 }, { key: 'p', width: 16 }]; this.excelTable(ws, ['Género', 'Total', 'Porcentaje'], (data.kpisGenero || []).map((r: any) => [r.genero, r.total, r.porcentaje]), 4); }
-    { const ws = addSheet('Egreso por Año', 4, 'Egreso por Año y Género'); ws.columns = [{ key: 'a', width: 12 }, { key: 'g', width: 20 }, { key: 't', width: 12 }, { key: 'p', width: 18 }]; this.excelTable(ws, ['Año', 'Género', 'Total', '% en Año'], (data.egresoAnioGenero || []).map((r: any) => [r.anio_egreso, r.genero, r.total, r.porcentaje_en_anio]), 4); }
-    { const ws = addSheet('Composición', 4, 'Composición por Carrera y Género'); ws.columns = [{ key: 'c', width: 35 }, { key: 'g', width: 20 }, { key: 't', width: 12 }, { key: 'p', width: 16 }]; this.excelTable(ws, ['Carrera', 'Género', 'Total', 'Porcentaje'], (data.composicionCarreraGenero || []).map((r: any) => [r.nombre_carrera, r.genero, r.total, r.porcentaje]), 4); }
-    { const ws = addSheet('Empleabilidad', 6, 'Empleabilidad por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 't', width: 12 }, { key: 'e', width: 14 }, { key: 'd', width: 14 }, { key: 'p', width: 14 }, { key: 's', width: 20 }]; this.excelTable(ws, ['Género', 'Total', 'Empleados', 'Desempleados', '% Empleados', 'Satisfacción Promedio'], (data.empleabilidadGenero || []).map((r: any) => [r.genero, r.total, r.empleados, r.desempleados, r.pct_empleados, r.satisfaccion_promedio]), 4); }
-    { const ws = addSheet('Sector Laboral', 4, 'Sector Laboral por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 's', width: 25 }, { key: 't', width: 12 }, { key: 'p', width: 14 }]; this.excelTable(ws, ['Género', 'Sector', 'Total', 'Porcentaje'], (data.sectorLaboralGenero || []).map((r: any) => [r.genero, r.sector, r.total, r.porcentaje]), 4); }
-    { const ws = addSheet('Titulación', 8, 'Titulación por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 't', width: 10 }, { key: 'tt', width: 14 }, { key: 'tr', width: 14 }, { key: 'nt', width: 16 }, { key: 'pt', width: 14 }, { key: 'ptr', width: 12 }, { key: 'pnt', width: 14 }]; this.excelTable(ws, ['Género', 'Total', 'Titulados', 'En Trámite', 'No Titulados', '% Titulados', '% Trámite', '% No Titulados'], (data.titulacionGenero || []).map((r: any) => [r.genero, r.total, r.titulados, r.en_tramite, r.no_titulados, r.pct_titulados, r.pct_en_tramite, r.pct_no_titulados]), 4); }
-    { const ws = addSheet('Tiempo de Empleo', 2, 'Tiempo para Emplearse por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 'a', width: 25 }]; this.excelTable(ws, ['Género', 'Años Promedio'], (data.tiempoEmpleoGenero || []).map((r: any) => [r.genero, r.tiempo_promedio_anios]), 4); }
-    { const ws = addSheet('Coincidencia', 4, 'Coincidencia Laboral por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 'co', width: 22 }, { key: 't', width: 12 }, { key: 'p', width: 14 }]; this.excelTable(ws, ['Género', 'Coincidencia', 'Total', 'Porcentaje'], (data.coincidenciaLaboralGenero || []).map((r: any) => [r.genero, r.coincidencia, r.total, r.porcentaje]), 4); }
-    { const ws = addSheet('Nivel de Inglés', 4, 'Nivel de Inglés por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 'n', width: 22 }, { key: 't', width: 12 }, { key: 'p', width: 14 }]; this.excelTable(ws, ['Género', 'Nivel', 'Total', 'Porcentaje'], (data.inglesGenero || []).map((r: any) => [r.genero, r.nivel, r.total, r.porcentaje]), 4); }
-    { const ws = addSheet('Satisfacción', 8, 'Satisfacción por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 'p', width: 14 }, { key: 't', width: 10 }, { key: 'ms', width: 16 }, { key: 's', width: 14 }, { key: 'n', width: 12 }, { key: 'i', width: 14 }, { key: 'mi', width: 18 }]; this.excelTable(ws, ['Género', 'Promedio', 'Total', 'Muy Satis.', 'Satisfecho', 'Neutral', 'Insatisfecho', 'Muy Insatis.'], (data.satisfaccionGenero || []).map((r: any) => [r.genero, r.promedio, r.total, r.muy_satisfecho, r.satisfecho, r.neutral, r.insatisfecho, r.muy_insatisfecho]), 4); }
-    { const ws = addSheet('Habilidades', 4, 'Habilidades por Género'); ws.columns = [{ key: 'g', width: 20 }, { key: 'h', width: 30 }, { key: 't', width: 12 }, { key: 'p', width: 14 }]; this.excelTable(ws, ['Género', 'Habilidad', 'Total', 'Porcentaje'], (data.habilidadesGenero || []).map((r: any) => [r.genero, r.habilidad, r.total, r.porcentaje]), 4); }
+
+    // 1) Indicadores Generales
+    {
+      const ws = addSheet('Indicadores', 3, 'Indicadores Generales por Género');
+      ws.columns = [{ key: 'g', width: 20 }, { key: 't', width: 15 }, { key: 'p', width: 16 }];
+      this.excelTable(ws, ['Género', 'Total', 'Porcentaje (%)'],
+        (data.kpisGenero || []).map((r: any) => [r.genero, r.total, +(+(r.porcentaje) || 0).toFixed(2)]),
+        4,
+      );
+    }
+
+    // 2) Egresados por Año (H vs M)
+    {
+      const ws = addSheet('Egresados por Año', 4, 'Egresados por Año (Hombres vs Mujeres)');
+      ws.columns = [
+        { key: 'a', width: 12 }, { key: 'g', width: 20 },
+        { key: 't', width: 12 }, { key: 'p', width: 18 },
+      ];
+      this.excelTable(ws, ['Año', 'Género', 'Total', '% en Año'],
+        (data.egresoAnioGenero || []).map((r: any) => [
+          r.anio_egreso, r.genero, r.total,
+          +(+(r.porcentaje_en_anio) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 3) Tendencia H/M por Año (pivoteada)
+    {
+      const ws = addSheet('Tendencia H-M por Año', 5, 'Tendencia H/M por Año');
+      ws.columns = [
+        { key: 'a', width: 12 }, { key: 'h', width: 14 },
+        { key: 'm', width: 14 }, { key: 't', width: 12 },
+        { key: 'pm', width: 16 },
+      ];
+      const tendenciaMap = new Map<string, Record<string, number>>();
+      for (const r of data.egresoAnioGenero || []) {
+        if (!tendenciaMap.has(String(r.anio_egreso)))
+          tendenciaMap.set(String(r.anio_egreso), {});
+        tendenciaMap.get(String(r.anio_egreso))![r.genero] = Number(r.total);
+      }
+      const tendenciaRows = [...tendenciaMap.entries()]
+        .sort(([a], [b]) => Number(a) - Number(b))
+        .map(([anio, g]) => {
+          const h = g['Hombre'] ?? g['Masculino'] ?? 0;
+          const m = g['Mujer'] ?? g['Femenino'] ?? 0;
+          const t = h + m;
+          return [Number(anio), h, m, t, t > 0 ? +((m / t) * 100).toFixed(2) : 0];
+        });
+      this.excelTable(ws, ['Año', 'Hombres', 'Mujeres', 'Total', '% Mujeres'],
+        tendenciaRows, 4,
+      );
+    }
+
+    // 4) Ranking por Feminización
+    {
+      const ws = addSheet('Ranking Feminización', 6, 'Ranking por Feminización');
+      ws.columns = [
+        { key: 'r', width: 8 }, { key: 'c', width: 38 },
+        { key: 'h', width: 14 }, { key: 'm', width: 14 },
+        { key: 't', width: 12 }, { key: 'pm', width: 16 },
+      ];
+      const femMap = new Map<string, { h: number; m: number }>();
+      for (const r of data.composicionCarreraGenero || []) {
+        if (!femMap.has(r.nombre_carrera)) femMap.set(r.nombre_carrera, { h: 0, m: 0 });
+        const entry = femMap.get(r.nombre_carrera)!;
+        const esMujer = r.genero === 'Mujer' || r.genero === 'Femenino';
+        if (esMujer) entry.m += Number(r.total); else entry.h += Number(r.total);
+      }
+      const rankingRows = [...femMap.entries()]
+        .map(([carrera, g]) => {
+          const t = g.h + g.m;
+          return { carrera, h: g.h, m: g.m, t, pctM: t > 0 ? (g.m / t) * 100 : 0 };
+        })
+        .sort((a, b) => b.pctM - a.pctM)
+        .map((r, i) => [i + 1, r.carrera, r.h, r.m, r.t, +r.pctM.toFixed(2)]);
+      this.excelTable(ws, ['#', 'Carrera', 'Hombres', 'Mujeres', 'Total', '% Mujeres'],
+        rankingRows, 4,
+      );
+    }
+
+    // 5) Composición H/M por Carrera
+    {
+      const ws = addSheet('Composición por Carrera', 4, 'Composición H/M por Carrera');
+      ws.columns = [
+        { key: 'c', width: 38 }, { key: 'g', width: 20 },
+        { key: 't', width: 12 }, { key: 'p', width: 16 },
+      ];
+      this.excelTable(ws, ['Carrera', 'Género', 'Total', 'Porcentaje (%)'],
+        (data.composicionCarreraGenero || []).map((r: any) => [
+          r.nombre_carrera, r.genero, r.total, +(+(r.porcentaje) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 6) Empleabilidad por Género
+    {
+      const ws = addSheet('Empleabilidad', 6, 'Empleabilidad por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 't', width: 12 }, { key: 'e', width: 14 },
+        { key: 'd', width: 14 }, { key: 'p', width: 16 }, { key: 's', width: 22 },
+      ];
+      this.excelTable(ws, ['Género', 'Total', 'Empleados', 'Desempleados', '% Empleados', 'Satisfacción Promedio'],
+        (data.empleabilidadGenero || []).map((r: any) => [
+          r.genero, r.total, r.empleados, r.desempleados,
+          +(+(r.pct_empleados) || 0).toFixed(2),
+          +(+(r.satisfaccion_promedio) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 7) Sector de Trabajo
+    {
+      const ws = addSheet('Sector de Trabajo', 4, 'Sector de Trabajo por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 's', width: 30 },
+        { key: 't', width: 12 }, { key: 'p', width: 16 },
+      ];
+      this.excelTable(ws, ['Género', 'Sector', 'Total', 'Porcentaje (%)'],
+        (data.sectorLaboralGenero || []).map((r: any) => [
+          r.genero, r.sector || '—', r.total, +(+(r.porcentaje) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 8) Coincidencia y Tiempo
+    {
+      const ws = addSheet('Coincidencia y Tiempo', 5, 'Coincidencia Laboral y Tiempo para Emplearse');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 'co', width: 26 },
+        { key: 't', width: 12 }, { key: 'p', width: 16 },
+        { key: 'te', width: 24 },
+      ];
+      const tiempoMap = new Map<string, number>();
+      for (const t of data.tiempoEmpleoGenero || [])
+        tiempoMap.set(t.genero, +(t.tiempo_promedio_anios) || 0);
+
+      const coincRows = (data.coincidenciaLaboralGenero || []).map((r: any) => [
+        r.genero, r.coincidencia || '—', r.total,
+        +(+(r.porcentaje) || 0).toFixed(2),
+        tiempoMap.get(r.genero) ?? null,
+      ]);
+      this.excelTable(
+        ws,
+        ['Género', 'Coincidencia', 'Total', 'Porcentaje (%)', 'Años Prom. para Emplearse'],
+        coincRows, 4,
+      );
+    }
+
+    // 9) ¿Quién Emigra Más?
+    {
+      const ws = addSheet('Quien Emigra Mas', 6, '¿Quién Emigra Más?')
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 't', width: 12 },
+        { key: 'ed', width: 16 }, { key: 'fd', width: 18 },
+        { key: 'ex', width: 16 }, { key: 'pf', width: 18 },
+      ];
+      this.excelTable(
+        ws,
+        ['Género', 'Total', 'En Durango', 'Fuera Dgo.', 'Extranjero', '% Fuera Durango'],
+        (data.geografiaGenero || []).map((r: any) => [
+          r.genero, r.total, r.en_durango, r.fuera_durango_mexico,
+          r.en_extranjero, +(+(r.pct_fuera_durango) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 10) Top Ciudades por Género
+    {
+      const ws = addSheet('Top Ciudades', 3, 'Top Ciudades de Trabajo por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 'c', width: 30 }, { key: 't', width: 12 },
+      ];
+      this.excelTable(ws, ['Género', 'Ciudad', 'Total'],
+        (data.topCiudadesGenero || []).map((r: any) => [
+          r.genero, r.ciudad_trabajo || '—', r.total,
+        ]),
+        4,
+      );
+    }
+
+    // 11) % Titulados por Género
+    {
+      const ws = addSheet('% Titulados', 8, '% Titulados por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 't', width: 12 },
+        { key: 'tt', width: 14 }, { key: 'tr', width: 14 },
+        { key: 'nt', width: 16 }, { key: 'pt', width: 14 },
+        { key: 'ptr', width: 14 }, { key: 'pnt', width: 16 },
+      ];
+      this.excelTable(
+        ws,
+        ['Género', 'Total', 'Titulados', 'En Trámite', 'No Titulados',
+          '% Titulados', '% En Trámite', '% No Titulados'],
+        (data.titulacionGenero || []).map((r: any) => [
+          r.genero, r.total, r.titulados, r.en_tramite, r.no_titulados,
+          +(+(r.pct_titulados) || 0).toFixed(2),
+          +(+(r.pct_en_tramite) || 0).toFixed(2),
+          +(+(r.pct_no_titulados) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 12) Titulación por Año y Género
+    {
+      const ws = addSheet('Titulación por Año', 5, 'Titulación por Año y Género');
+      ws.columns = [
+        { key: 'a', width: 12 }, { key: 'g', width: 20 },
+        { key: 't', width: 12 }, { key: 'tt', width: 14 },
+        { key: 'pt', width: 16 },
+      ];
+      this.excelTable(ws, ['Año', 'Género', 'Total', 'Titulados', '% Titulados'],
+        (data.titulacionAnioGenero || []).map((r: any) => [
+          r.anio_egreso, r.genero, r.total, r.titulados,
+          +(+(r.pct_titulados) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 13) ¿Quién Continúa Estudiando?
+    if (!carrera) {
+      const ws = addSheet('Quien Estudia Posgrado', 2, '¿Quién Continúa Estudiando? (Posgrado)');
+      ws.columns = [{ key: 'g', width: 20 }, { key: 't', width: 20 }];
+      this.excelTable(ws, ['Género', 'Total en Posgrado'],
+        (data.posgradoGenero || []).map((r: any) => [r.genero, r.total]),
+        4,
+      );
+    }
+
+    // 14) Tipo de Posgrado por Género
+    if (!carrera) {
+      const ws = addSheet('Tipo de Posgrado', 4, 'Tipo de Posgrado por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 'tp', width: 30 },
+        { key: 't', width: 12 }, { key: 'p', width: 16 },
+      ];
+      this.excelTable(ws, ['Género', 'Tipo de Posgrado', 'Total', 'Porcentaje (%)'],
+        (data.posgradoTipoGenero || []).map((r: any) => [
+          r.genero, r.tipo_posgrado || '—', r.total,
+          +(+(r.porcentaje) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 15) Nivel de Inglés por Género
+    {
+      const ws = addSheet('Nivel de Inglés', 4, 'Nivel de Inglés por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 'n', width: 26 },
+        { key: 't', width: 12 }, { key: 'p', width: 16 },
+      ];
+      this.excelTable(ws, ['Género', 'Nivel', 'Total', 'Porcentaje (%)'],
+        (data.inglesGenero || []).map((r: any) => [
+          r.genero, r.nivel || '—', r.total, +(+(r.porcentaje) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 16) Satisfacción Promedio
+    {
+      const ws = addSheet('Satisfacción', 8, 'Satisfacción Promedio por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 'pr', width: 14 },
+        { key: 't', width: 12 }, { key: 'ms', width: 16 },
+        { key: 's', width: 14 }, { key: 'n', width: 12 },
+        { key: 'i', width: 14 }, { key: 'mi', width: 18 },
+      ];
+      this.excelTable(
+        ws,
+        ['Género', 'Promedio', 'Total', 'Muy Satisfecho', 'Satisfecho',
+          'Neutral', 'Insatisfecho', 'Muy Insatisfecho'],
+        (data.satisfaccionGenero || []).map((r: any) => [
+          r.genero, +(+(r.promedio) || 0).toFixed(2), r.total,
+          r.muy_satisfecho, r.satisfecho, r.neutral, r.insatisfecho, r.muy_insatisfecho,
+        ]),
+        4,
+      );
+    }
+
+    // 17) Habilidades que Faltaron
+    {
+      const ws = addSheet('Habilidades', 4, 'Habilidades que Faltaron por Género');
+      ws.columns = [
+        { key: 'g', width: 20 }, { key: 'h', width: 32 },
+        { key: 't', width: 12 }, { key: 'p', width: 16 },
+      ];
+      this.excelTable(ws, ['Género', 'Habilidad', 'Total', 'Porcentaje (%)'],
+        (data.habilidadesGenero || []).map((r: any) => [
+          r.genero, r.habilidad || '—', r.total, +(+(r.porcentaje) || 0).toFixed(2),
+        ]),
+        4,
+      );
+    }
+
+    // 18) Hallazgos Destacados
+    // 18) Hallazgos Destacados
+    {
+      const ws = addSheet('Hallazgos', 2, 'Hallazgos Destacados');
+      ws.columns = [{ key: 'titulo', width: 35 }, { key: 'desc', width: 90 }];
+
+      const insights: (string | number | null)[][] = [];
+
+      // Brecha de empleabilidad
+      const empG = data.empleabilidadGenero || [];
+      if (empG.length >= 2) {
+        const sorted = [...empG].sort((a: any, b: any) => +(b.pct_empleados) - +(a.pct_empleados));
+        const diff = Math.abs(+(sorted[0].pct_empleados) - +(sorted[sorted.length - 1].pct_empleados));
+        if (diff > 2) {
+          insights.push([
+            'Brecha de empleo',
+            `${sorted[0].genero} tiene mayor tasa de empleo (${sorted[0].pct_empleados}%) vs ${sorted[sorted.length - 1].genero} (${sorted[sorted.length - 1].pct_empleados}%). Diferencia: ${diff.toFixed(1)}pp.`,
+          ]);
+        }
+      }
+
+      // Titulación
+      const titG = data.titulacionGenero || [];
+      if (titG.length >= 2) {
+        const sorted = [...titG].sort((a: any, b: any) => +(b.pct_titulados) - +(a.pct_titulados));
+        const diff = Math.abs(+(sorted[0].pct_titulados) - +(sorted[sorted.length - 1].pct_titulados));
+        if (diff > 2) {
+          insights.push([
+            'Titulación',
+            `${sorted[0].genero} titula más (${sorted[0].pct_titulados}%) vs ${sorted[sorted.length - 1].genero} (${sorted[sorted.length - 1].pct_titulados}%). Diferencia: ${diff.toFixed(1)}pp.`,
+          ]);
+        }
+      }
+
+      // Posgrado — solo sin filtro de carrera
+      if (!carrera) {
+        const posG = data.posgradoGenero || [];
+        if (posG.length >= 2) {
+          const sorted = [...posG].sort((a: any, b: any) => +(b.total) - +(a.total));
+          const totalPos = posG.reduce((s: number, r: any) => s + +r.total, 0);
+          const topPos = sorted[0];
+          const pctTop = totalPos > 0 ? ((+topPos.total / totalPos) * 100).toFixed(1) : '0';
+          insights.push([
+            'Posgrado',
+            `${topPos.genero} tiene mayor continuidad en posgrado: ${pctTop}%.`,
+          ]);
+        }
+      }
+
+      // Movilidad geográfica
+      const geoG = data.geografiaGenero || [];
+      if (geoG.length >= 2) {
+        const sorted = [...geoG].sort((a: any, b: any) => +(b.pct_fuera_durango) - +(a.pct_fuera_durango));
+        const h = geoG.find((r: any) => r.genero === 'Hombre' || r.genero === 'Masculino');
+        const m = geoG.find((r: any) => r.genero === 'Mujer' || r.genero === 'Femenino');
+        insights.push([
+          'Movilidad geográfica',
+          `${sorted[0].genero} tiene mayor movilidad fuera de Durango. H: ${(+(h?.pct_fuera_durango) || 0).toFixed(0)}% · M: ${(+(m?.pct_fuera_durango) || 0).toFixed(0)}%`,
+        ]);
+      }
+
+      // Satisfacción académica
+      const satG = data.satisfaccionGenero || [];
+      if (satG.length >= 2) {
+        const sorted = [...satG].sort((a: any, b: any) => +(b.promedio) - +(a.promedio));
+        const diff = Math.abs(+(sorted[0].promedio) - +(sorted[sorted.length - 1].promedio));
+        if (diff > 0.05) {
+          const h = satG.find((r: any) => r.genero === 'Hombre' || r.genero === 'Masculino');
+          const m = satG.find((r: any) => r.genero === 'Mujer' || r.genero === 'Femenino');
+          insights.push([
+            'Satisfacción académica',
+            `${sorted[0].genero} reporta mayor satisfacción. H: ${(+(h?.promedio) || 0).toFixed(2)}/5 · M: ${(+(m?.promedio) || 0).toFixed(2)}/5`,
+          ]);
+        }
+      }
+
+      // Carrera más feminizada — solo sin filtro de carrera
+      if (!carrera) {
+        const femMap2 = new Map<string, { h: number; m: number }>();
+        for (const r of data.composicionCarreraGenero || []) {
+          if (!femMap2.has(r.nombre_carrera)) femMap2.set(r.nombre_carrera, { h: 0, m: 0 });
+          const entry = femMap2.get(r.nombre_carrera)!;
+          const esMujer = r.genero === 'Mujer' || r.genero === 'Femenino';
+          if (esMujer) entry.m += Number(r.total); else entry.h += Number(r.total);
+        }
+        const topFem = [...femMap2.entries()]
+          .map(([c, g]) => ({ c, pctM: (g.h + g.m) > 0 ? (g.m / (g.h + g.m)) * 100 : 0 }))
+          .sort((a, b) => b.pctM - a.pctM)[0];
+        if (topFem) {
+          insights.push([
+            'Carrera más feminizada',
+            `${topFem.c} tiene el mayor porcentaje de mujeres: ${topFem.pctM.toFixed(1)}%.`,
+          ]);
+        }
+      }
+
+      const nextRow = this.excelTable(ws, ['Hallazgo', 'Descripción'], insights, 4);
+      for (let r = 5; r < nextRow; r++) {
+        const row = ws.getRow(r);
+        row.getCell(2).alignment = { vertical: 'middle', wrapText: true };
+        row.height = 30;
+      }
+    }
+
     return this.toBuffer(wb);
   }
 }
