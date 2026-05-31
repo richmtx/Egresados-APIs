@@ -258,6 +258,52 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Get('vinculacion/panel/export/pdf')
+  async exportVinculacionPanelPdf(
+    @Query('seccion') seccion: 'colab' | 'hab' | 'auth',
+    @Query('valor') valor: string,
+    @Query('titulo') titulo: string,
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarVinculacionPanelPdf(
+      seccion,
+      valor,
+      titulo,
+      carrera,
+      anio ? +anio : undefined,
+    );
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="vinculacion_panel_${fecha}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
+  @Get('vinculacion/panel/export/excel')
+  async exportVinculacionPanelExcel(
+    @Query('seccion') seccion: 'colab' | 'hab' | 'auth',
+    @Query('valor') valor: string,
+    @Query('titulo') titulo: string,
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarVinculacionPanelExcel(
+      seccion, valor, titulo, carrera, anio ? +anio : undefined,
+    );
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="vinculacion_panel_${fecha}.xlsx"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
   @Get('comparativas/export/pdf')
   async exportComparativasPdf(
     @Query('carreras') carrerasParam: string,
