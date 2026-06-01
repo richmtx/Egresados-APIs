@@ -7,8 +7,6 @@ import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 // import { diskStorage } from 'multer';  // ← descomentar al migrar al servidor ITD
 import { memoryStorage } from 'multer';
-import { extname, join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
@@ -22,12 +20,6 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
-
-const FOTOS_DIR = join(process.cwd(), 'uploads', 'fotos');
-
-if (!existsSync(FOTOS_DIR)) {
-  mkdirSync(FOTOS_DIR, { recursive: true });
-}
 
 /*
 // ── Configuración para servidor ITD (disco persistente) ──────────────────────
