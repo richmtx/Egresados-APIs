@@ -5,7 +5,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+// import { diskStorage } from 'multer';  // ← descomentar al migrar al servidor ITD
+import { memoryStorage } from 'multer';
 import { extname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { plainToInstance } from 'class-transformer';
@@ -28,6 +29,8 @@ if (!existsSync(FOTOS_DIR)) {
   mkdirSync(FOTOS_DIR, { recursive: true });
 }
 
+/*
+// ── Configuración para servidor ITD (disco persistente) ──────────────────────
 const multerFotoOptions = {
   storage: diskStorage({
     destination: (_req, _file, cb) => cb(null, FOTOS_DIR),
@@ -44,6 +47,19 @@ const multerFotoOptions = {
     } else {
       cb(new BadRequestException('Solo se permiten imágenes JPG, PNG o WEBP.'), false);
     }
+  },
+};
+*/
+
+// ── Configuración para Railway (memoria → Base64 en BD) ───────────────────────
+const multerFotoOptions = {
+  storage: memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    allowed.includes(file.mimetype)
+      ? cb(null, true)
+      : cb(new BadRequestException('Solo se permiten imágenes JPG, PNG o WEBP.'), false);
   },
 };
 
@@ -85,7 +101,14 @@ export class EgresadosController {
       if (errores.length > 0) throw new BadRequestException(errores);
     }
 
-    const fotoUrl = foto ? `uploads/fotos/${foto.filename}` : null;
+    // ── Railway: guarda Base64 en BD ──────────────────────────────────────────
+    const fotoUrl = foto?.buffer
+      ? `data:${foto.mimetype};base64,${foto.buffer.toString('base64')}`
+      : null;
+
+    // ── ITD: descomentar esta línea y comentar la de arriba ───────────────────
+    // const fotoUrl = foto ? `uploads/fotos/${foto.filename}` : null;
+
     return this.egresadosService.crearEtapa1(dto, fotoUrl);
   }
 
@@ -121,8 +144,6 @@ export class EgresadosController {
   findAllConDetalles() {
     return this.egresadosService.findAllConDetalles();
   }
-
-  // Exportación estadísticas generales — vuelven a GET (sin imágenes en body)
 
   @Get('estadisticas/export/pdf')
   async exportEstadisticasPdf(
@@ -268,11 +289,7 @@ export class EgresadosController {
     @Res() res?: any,
   ) {
     const buffer = await this.exportEstadisticasService.exportarVinculacionPanelPdf(
-      seccion,
-      valor,
-      titulo,
-      carrera,
-      anio ? +anio : undefined,
+      seccion, valor, titulo, carrera, anio ? +anio : undefined,
     );
     const fecha = new Date().toISOString().split('T')[0];
     res.set({

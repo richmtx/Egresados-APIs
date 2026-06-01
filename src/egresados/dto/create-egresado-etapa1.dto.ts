@@ -1,7 +1,5 @@
-import {
-  IsString, IsNumber, IsBoolean, IsEmail, IsNotEmpty,
-  IsOptional, ValidateNested, Min, Max
-} from 'class-validator';
+import { IsString, IsNumber, IsBoolean, IsEmail, IsNotEmpty,
+  IsOptional, ValidateNested, Min, Max } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class AutorizacionesDto {
