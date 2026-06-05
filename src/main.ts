@@ -9,7 +9,11 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  //app.setGlobalPrefix('api');
+  // ── Forzar UTF-8 en todas las respuestas JSON ──
+  app.use((req: any, res: any, next: any) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    next();
+  });
 
   app.enableCors();
 
@@ -25,17 +29,13 @@ async function bootstrap() {
     }),
   );
 
-  // Sirve la carpeta uploads/ como archivos estáticos
-  // Las fotos quedan accesibles en: http://localhost:3000/uploads/fotos/<archivo>
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
-  // Puerto
   const port = process.env.PORT ?? 3000;
 
   await app.listen(port);
 
   console.log(`🚀 Servidor corriendo en: http://localhost:${port}`);
-  //console.log(`📡 API disponible en: http://localhost:${port}/api`);
 
 }
 
