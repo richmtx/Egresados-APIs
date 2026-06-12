@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { unlink } from 'fs/promises';
@@ -18,6 +18,19 @@ export class EgresadosService {
     private dataSource: DataSource,
     private notificacionesService: NotificacionesService,
   ) { }
+
+  // Borra un egresado y TODOS sus registros hijos. Lo usan la limpieza de
+  // registros incompletos (candado) y el remove de vinculación.
+  private async borrarEgresadoCompleto(id: number): Promise<void> {
+    await this.dataSource.query(`DELETE FROM autorizaciones          WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM certificaciones         WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM egresado_habilidades    WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM habilidades_otro        WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM egresado_colaboraciones WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM colaboracion_otro       WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM notificaciones          WHERE id_egresado = ?`, [id]);
+    await this.dataSource.query(`DELETE FROM egresados               WHERE id_egresado = ?`, [id]);
+  }
 
   private async resolveId(
     tabla: string,
@@ -133,6 +146,28 @@ export class EgresadosService {
     fotoUrl: string | null = null,
   ): Promise<{ id_egresado: number; mensaje: string }> {
 
+    // Correo normalizado: minúsculas + sin espacios. Es la llave del candado.
+    const correo = dto.correo.trim().toLowerCase();
+
+    // ── CANDADO ─────────────────────────────────────────────────────────────
+    const existente = await this.dataSource.query(
+      `SELECT id_egresado, registro_completo
+       FROM egresados WHERE correo = ? LIMIT 1`,
+      [correo],
+    );
+
+    if (existente.length > 0) {
+      if (existente[0].registro_completo) {
+        // Ya terminó su registro → se activa el candado
+        throw new ConflictException(
+          'Ya tenemos registradas tus respuestas. Si necesitas corregir algún dato, comunícate con vinculación.',
+        );
+      }
+      // Registro a medias del mismo correo → lo limpiamos para empezar de cero
+      await this.borrarEgresadoCompleto(existente[0].id_egresado);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const genero_id = await this.resolveId('generos', 'id_genero', 'genero', dto.genero);
     const carrera_id = await this.resolveId('carreras', 'id_carrera', 'nombre_carrera', dto.carrera);
     const nivel_ingles_id = await this.resolveId('niveles_ingles', 'id_nivel', 'nivel', dto.nivel_ingles);
@@ -142,36 +177,51 @@ export class EgresadosService {
       : null;
     const certificacion_vigente_id = await this.resolveId('certificaciones_vigentes', 'id_certificacion_vigente', 'respuesta', dto.certificacion_vigente);
 
-    const result = await this.dataSource.query(
-      `INSERT INTO egresados
+    // INSERT con red de seguridad por si dos registros entran al mismo tiempo
+    let id_egresado: number;
+    try {
+      const result = await this.dataSource.query(
+        `INSERT INTO egresados
       (nombre_completo, genero_id, correo, telefono, ciudad_residencia,
        carrera_id, anio_egreso, estatus_titulacion, certificacion_vigente_id,
        nivel_ingles_id, situacion_laboral_id, empresa, antiguedad_empleo_id,
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
        numero_control, linkedin, puesto_trabajo, coincidencia_laboral_id,
-       foto_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', '', 1, ?)`,
-      [
-        dto.nombre_completo,
-        genero_id,
-        dto.correo,
-        dto.telefono,
-        dto.ciudad_residencia,
-        carrera_id,
-        dto.anio_egreso,
-        dto.estatus_titulacion,
-        certificacion_vigente_id,
-        nivel_ingles_id,
-        situacion_laboral_id,
-        dto.empresa || '',
-        antiguedad_empleo_id,
-        dto.ciudad_trabajo || '',
-        dto.satisfaccion_formacion,
-        fotoUrl,           // ← nuevo: null si no hay foto
-      ],
-    );
+       foto_url, registro_completo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', '', 1, ?, 0)`,
+        [
+          dto.nombre_completo,
+          genero_id,
+          correo,
+          dto.telefono,
+          dto.ciudad_residencia,
+          carrera_id,
+          dto.anio_egreso,
+          dto.estatus_titulacion,
+          certificacion_vigente_id,
+          nivel_ingles_id,
+          situacion_laboral_id,
+          dto.empresa || '',
+          antiguedad_empleo_id,
+          dto.ciudad_trabajo || '',
+          dto.satisfaccion_formacion,
+          fotoUrl,
+        ],
+      );
+      id_egresado = result.insertId;
+    } catch (error: any) {
+      const esDuplicado =
+        error?.code === 'ER_DUP_ENTRY' ||
+        error?.errno === 1062 ||
+        error?.driverError?.code === 'ER_DUP_ENTRY';
 
-    const id_egresado: number = result.insertId;
+      if (esDuplicado) {
+        throw new ConflictException(
+          'Ya tenemos registradas tus respuestas. Si necesitas corregir algún dato, comunícate con vinculación.',
+        );
+      }
+      throw error;
+    }
 
     await this.dataSource.query(
       `INSERT INTO autorizaciones
@@ -223,11 +273,12 @@ export class EgresadosService {
 
     await this.dataSource.query(
       `UPDATE egresados
-       SET numero_control          = ?,
-           linkedin                = ?,
-           puesto_trabajo          = ?,
-           coincidencia_laboral_id = ?
-     WHERE id_egresado = ?`,
+     SET numero_control          = ?,
+         linkedin                = ?,
+         puesto_trabajo          = ?,
+         coincidencia_laboral_id = ?,
+         registro_completo       = 1
+   WHERE id_egresado = ?`,
       [
         dto.numero_control,
         dto.linkedin || '',
@@ -312,11 +363,17 @@ export class EgresadosService {
   }
 
   // BUSCAR POR CORREO
-  async buscarPorCorreo(correo: string): Promise<{ id_egresado: number } | null> {
+  async buscarPorCorreo(
+    correoRaw: string,
+  ): Promise<{ id_egresado: number; registro_completo: boolean } | null> {
+    const correo = (correoRaw || '').trim().toLowerCase();
     const rows = await this.dataSource.query(
-      `SELECT id_egresado FROM egresados WHERE correo = ? LIMIT 1`, [correo],
+      `SELECT id_egresado, registro_completo FROM egresados WHERE correo = ? LIMIT 1`,
+      [correo],
     );
-    return rows.length ? { id_egresado: rows[0].id_egresado } : null;
+    return rows.length
+      ? { id_egresado: rows[0].id_egresado, registro_completo: !!rows[0].registro_completo }
+      : null;
   }
 
 
@@ -357,19 +414,12 @@ export class EgresadosService {
 
   // REMOVE
   async remove(id: number): Promise<{ mensaje: string }> {
-
     const existe = await this.egresadosRepo.findOne({ where: { id_egresado: id } });
     if (!existe) {
       throw new NotFoundException(`No se encontró el egresado con id ${id}.`);
     }
 
-    await this.dataSource.query(`DELETE FROM autorizaciones          WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM certificaciones         WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM egresado_habilidades    WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM habilidades_otro        WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM egresado_colaboraciones WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM colaboracion_otro       WHERE id_egresado = ?`, [id]);
-    await this.egresadosRepo.delete(id);
+    await this.borrarEgresadoCompleto(id);
 
     if (existe.foto_url) {
       try {
@@ -1811,7 +1861,7 @@ export class EgresadosService {
           WHERE ec.id_egresado = ?
         `, [eg.id_egresado]),
       ]);
-      eg.certificaciones   = certs.map((r: any) => r.nombre_certificacion);
+      eg.certificaciones = certs.map((r: any) => r.nombre_certificacion);
       eg.interes_colaborar = colabs.map((r: any) => r.descripcion);
     }
 
@@ -1836,7 +1886,7 @@ export class EgresadosService {
 
     return {
       carreras: carrerasRows.map((r: any) => r.nombre_carrera),
-      anios:    aniosRows.map((r: any) => Number(r.anio_egreso)),
+      anios: aniosRows.map((r: any) => Number(r.anio_egreso)),
     };
   }
 

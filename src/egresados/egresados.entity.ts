@@ -1,6 +1,7 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, Index } from 'typeorm';
 
 @Entity('egresados')
+@Index('uq_egresados_correo', ['correo'], { unique: true })
 export class Egresado {
 
   @PrimaryGeneratedColumn()
@@ -78,4 +79,7 @@ export class Egresado {
   // Foto de perfil opcional — ruta relativa almacenada, ej: "uploads/fotos/1234-abc.jpg"
   @Column({ type: 'varchar', length: 255, nullable: true, default: null })
   foto_url: string | null;
+
+  @Column({ type: 'tinyint', default: 0 })
+  registro_completo: boolean;
 }
