@@ -408,7 +408,7 @@ export class EgresadosService {
     LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id       = sl.id_situacion
     LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id   = cv.id_certificacion_vigente
     LEFT JOIN autorizaciones           aut ON e.id_egresado                = aut.id_egresado
-    ORDER BY e.fecha_registro DESC
+    ORDER BY e.id_egresado DESC
   `);
   }
 
@@ -679,6 +679,7 @@ export class EgresadosService {
       LEFT JOIN carreras             c  ON e.carrera_id             = c.id_carrera
       LEFT JOIN coincidencia_laboral cl ON e.coincidencia_laboral_id = cl.id_coincidencia
       ${where}
+      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera, cl.nivel
       ORDER BY c.nombre_carrera, total DESC
     `, params);
