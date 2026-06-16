@@ -50,22 +50,71 @@ export class EgresadosService {
     return rows[0][columnaId];
   }
 
+  /**
+ * Determina si el egresado reside fuera de México (en el extranjero),
+ * a partir del texto libre de ciudad_residencia.
+ *
+ * Estrategia conservadora:
+ *  1. Si menciona México explícitamente → residencia nacional.
+ *  2. Si menciona un país/indicador extranjero conocido → extranjero.
+ *  3. Si es ambiguo (sin país) → se asume nacional, para evitar falsos positivos.
+ *
+ * Ajusta las dos listas al formato real con el que tu formulario guarda la residencia.
+ */
+  private resideEnElExtranjero(ciudadResidencia: string): boolean {
+    if (!ciudadResidencia || !ciudadResidencia.trim()) return false;
+
+    const normalizar = (s: string) =>
+      s.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // quita acentos
+        .trim();
+
+    const texto = normalizar(ciudadResidencia);
+
+    // 1. Indicadores de residencia nacional (México)
+    const indicadoresMexico = ['mexico', ', mx', ' mx '];
+    if (indicadoresMexico.some((t) => texto.includes(normalizar(t)))) {
+      return false;
+    }
+
+    // 2. Indicadores de residencia en el extranjero (amplía según tus datos reales)
+    const indicadoresExtranjero = [
+      'estados unidos', 'united states', 'usa', 'ee.uu', 'eua',
+      'canada', 'espana', 'spain', 'alemania', 'germany',
+      'francia', 'france', 'reino unido', 'inglaterra',
+      'china', 'japon', 'argentina', 'colombia', 'chile', 'peru', 'brasil',
+    ];
+    return indicadoresExtranjero.some((t) => texto.includes(normalizar(t)));
+  }
+
   private async generarNotificacionDestacada(
     id_egresado: number,
     nombre: string,
     carrera: string,
     anio: number,
-    ciudadTrabajo: string,
+    ciudadTrabajo: string,        // nota: ya no se usa aquí (ver explicación abajo)
     ciudadResidencia: string,
     autorizoContacto: boolean,
     autorizoEventos: boolean,
   ): Promise<void> {
 
-    const certs = await this.dataSource.query(
-      `SELECT nombre_certificacion FROM certificaciones WHERE id_egresado = ? LIMIT 1`,
-      [id_egresado],
-    );
+    const nombreCorto = nombre.split(' ').slice(0, 2).join(' ');
 
+    // ── 1. UBICACIÓN (determinista) ─────────────────────────────────────────────
+    // Si el egresado reside en el extranjero, SIEMPRE se crea, con su tipo propio
+    // 'nueva_encuesta_ubicacion' (tag rojo "Ubicación" en el front). Fuera del sorteo.
+    if (this.resideEnElExtranjero(ciudadResidencia)) {
+      await this.notificacionesService.crear({
+        tipo: 'nueva_encuesta_ubicacion',
+        titulo: 'Encuesta destacada — Ubicación',
+        descripcion: `${nombreCorto} reside actualmente en ${ciudadResidencia} y completó la encuesta (${carrera}, ${anio})`,
+        id_egresado,
+      });
+    }
+
+    // ── 2. DESTACADA (una al azar) ──────────────────────────────────────────────
+    // Ya NO incluye la ubicación: esa se maneja arriba de forma independiente.
     const puestoRow = await this.dataSource.query(
       `SELECT puesto_trabajo FROM egresados WHERE id_egresado = ? LIMIT 1`,
       [id_egresado],
@@ -74,35 +123,11 @@ export class EgresadosService {
 
     const opciones: { tipo: string; titulo: string; descripcion: string }[] = [];
 
-    if (certs.length > 0) {
-      const cert: string = certs[0].nombre_certificacion;
-      const nombreCorto = nombre.split(' ').slice(0, 2).join(' ');
-      opciones.push({
-        tipo: 'nueva_encuesta_ubicacion',
-        titulo: 'Encuesta destacada — Ubicación',
-        descripcion: `${nombreCorto} trabajando actualmente en ${ciudadTrabajo} completó la encuesta (${carrera}, ${anio})`,
-      });
-    }
-
     if (puesto && puesto.trim() !== '') {
-      const nombreCorto = nombre.split(' ').slice(0, 2).join(' ');
       opciones.push({
         tipo: 'nueva_encuesta',
         titulo: 'Encuesta destacada — Puesto laboral',
         descripcion: `${nombreCorto}, ${puesto} completó la encuesta (${carrera}, ${anio})`,
-      });
-    }
-
-    if (
-      ciudadTrabajo &&
-      ciudadTrabajo.trim() !== '' &&
-      ciudadTrabajo.toLowerCase() !== ciudadResidencia.toLowerCase()
-    ) {
-      const nombreCorto = nombre.split(' ').slice(0, 2).join(' ');
-      opciones.push({
-        tipo: 'nueva_encuesta',
-        titulo: 'Encuesta destacada — Ubicación',
-        descripcion: `${nombreCorto} trabajando actualmente en ${ciudadTrabajo} completó la encuesta (${carrera}, ${anio})`,
       });
     }
 
