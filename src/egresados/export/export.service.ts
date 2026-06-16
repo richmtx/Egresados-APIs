@@ -462,12 +462,29 @@ export class ExportService {
             return '* '.repeat(llenas).trim();
         };
 
-        // Cargar foto si existe
+        // Cargar foto de perfil — soporta data URI, Base64 puro (Railway/LONGTEXT) o ruta en disco
         let fotoBuffer: Buffer | null = null;
         if (e.foto_url) {
-            const fotoPath = path.join(process.cwd(), e.foto_url);
-            if (fs.existsSync(fotoPath)) {
-                fotoBuffer = fs.readFileSync(fotoPath);
+            try {
+                const foto: string = String(e.foto_url).trim();
+
+                if (foto.startsWith('data:')) {
+                    // Caso 1 — data URI: data:image/png;base64,iVBORw0KG...
+                    const base64 = foto.substring(foto.indexOf(',') + 1);
+                    fotoBuffer = Buffer.from(base64, 'base64');
+                } else if (foto.length < 500 && /\.(jpe?g|png|webp|gif)$/i.test(foto)) {
+                    // Caso 2 — ruta de archivo en disco (entorno local)
+                    const fotoPath = path.join(process.cwd(), foto);
+                    if (fs.existsSync(fotoPath)) {
+                        fotoBuffer = fs.readFileSync(fotoPath);
+                    }
+                } else {
+                    // Caso 3 — Base64 puro sin prefijo (columna LONGTEXT en Railway)
+                    fotoBuffer = Buffer.from(foto, 'base64');
+                }
+            } catch (err) {
+                console.error('No se pudo cargar la foto de perfil del egresado:', err);
+                fotoBuffer = null;
             }
         }
 
@@ -492,11 +509,21 @@ export class ExportService {
             const FOTO_Y = 18;
 
             if (fotoBuffer) {
-                // Clip circular
-                doc.save();
-                doc.circle(FOTO_X + FOTO_SIZE / 2, FOTO_Y + FOTO_SIZE / 2, FOTO_SIZE / 2).clip();
-                doc.image(fotoBuffer, FOTO_X, FOTO_Y, { width: FOTO_SIZE, height: FOTO_SIZE });
-                doc.restore();
+                try {
+                    // Clip circular + cover para que la foto llene el círculo sin deformarse
+                    doc.save();
+                    doc.circle(FOTO_X + FOTO_SIZE / 2, FOTO_Y + FOTO_SIZE / 2, FOTO_SIZE / 2).clip();
+                    doc.image(fotoBuffer, FOTO_X, FOTO_Y, {
+                        cover: [FOTO_SIZE, FOTO_SIZE],
+                        align: 'center',
+                        valign: 'center',
+                    });
+                    doc.restore();
+                } catch (err) {
+                    doc.restore();
+                    console.error('PDFKit no pudo renderizar la foto (¿formato no soportado?):', err);
+                    fotoBuffer = null; // así el texto no se desplaza a la derecha si la imagen falló
+                }
             }
 
             // Texto desplazado a la derecha si hay foto
