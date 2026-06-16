@@ -108,7 +108,7 @@ export class DashboardService {
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       LEFT JOIN generos g ON e.genero_id = g.id_genero
-      ORDER BY e.fecha_registro DESC
+      ORDER BY e.id_egresado DESC
       LIMIT 10
     `);
 
@@ -128,7 +128,7 @@ export class DashboardService {
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       LEFT JOIN generos g ON e.genero_id = g.id_genero
-      ORDER BY e.fecha_registro DESC
+      ORDER BY e.id_egresado DESC
       LIMIT 10
     `);
 
@@ -164,7 +164,7 @@ export class DashboardService {
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       WHERE e.revisado = 0
-      ORDER BY e.fecha_registro DESC
+      ORDER BY e.id_egresado DESC
       LIMIT 10
     `);
 
