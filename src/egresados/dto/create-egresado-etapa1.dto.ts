@@ -1,5 +1,7 @@
-import { IsString, IsNumber, IsBoolean, IsEmail, IsNotEmpty,
-  IsOptional, ValidateNested, Min, Max } from 'class-validator';
+import {
+  IsString, IsNumber, IsBoolean, IsEmail, IsNotEmpty,
+  IsOptional, ValidateNested, ValidateIf, Min, Max
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class AutorizacionesDto {
@@ -36,6 +38,37 @@ export class CreateEgresadoEtapa1Dto {
   @IsString()
   @Transform(({ value }) => value ?? '')
   ciudad_trabajo?: string;
+
+  // ── primer empleo ─────────────────────────────────────────────────────
+  @IsString() @IsNotEmpty() tiempo_primer_empleo: string;
+
+  // Obligatorio solo si SÍ consiguió empleo
+  @ValidateIf((o) => o.tiempo_primer_empleo !== 'Aún no he conseguido empleo')
+  @IsString()
+  @IsNotEmpty()
+  medio_primer_empleo?: string;
+
+  // Obligatorio solo si consiguió empleo Y eligió "Otra"
+  @ValidateIf((o) =>
+    o.tiempo_primer_empleo !== 'Aún no he conseguido empleo' &&
+    o.medio_primer_empleo === 'Otra',
+  )
+  @IsString()
+  @IsNotEmpty({ message: 'Especifica el medio cuando seleccionas "Otra".' })
+  @Transform(({ value }) => value ?? '')
+  medio_primer_empleo_otro?: string;
+
+  // ── NUEVO: redes sociales (opcionales) ────────────────────────────────
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value ?? '')
+  facebook?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => value ?? '')
+  instagram?: string;
+  // ──────────────────────────────────────────────────────────────────────
 
   @IsNumber() @Min(1) @Max(5) satisfaccion_formacion: number;
 

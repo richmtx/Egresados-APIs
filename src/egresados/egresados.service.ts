@@ -202,6 +202,24 @@ export class EgresadosService {
       : null;
     const certificacion_vigente_id = await this.resolveId('certificaciones_vigentes', 'id_certificacion_vigente', 'respuesta', dto.certificacion_vigente);
 
+    // ── primer empleo ─────────────────────────────────────────────────────
+    const sinEmpleo = dto.tiempo_primer_empleo === 'Aún no he conseguido empleo';
+
+    const tiempo_primer_empleo_id = await this.resolveId('tiempo_primer_empleo', 'id_tiempo', 'rango', dto.tiempo_primer_empleo);
+
+    // Si nunca se empleó, no hay medio → queda NULL
+    const medio_primer_empleo_id = sinEmpleo
+      ? null
+      : await this.resolveId('medio_primer_empleo', 'id_medio', 'medio', dto.medio_primer_empleo!);
+
+    const medioOtro = (!sinEmpleo && dto.medio_primer_empleo === 'Otra')
+      ? (dto.medio_primer_empleo_otro?.trim() || '')
+      : '';
+
+    // ── redes sociales (opcionales) ───────────────────────────────────────
+    const facebook = dto.facebook?.trim() || '';
+    const instagram = dto.instagram?.trim() || '';
+
     // INSERT con red de seguridad por si dos registros entran al mismo tiempo
     let id_egresado: number;
     try {
@@ -210,10 +228,11 @@ export class EgresadosService {
       (nombre_completo, genero_id, correo, telefono, ciudad_residencia,
        carrera_id, anio_egreso, estatus_titulacion, certificacion_vigente_id,
        nivel_ingles_id, situacion_laboral_id, empresa, antiguedad_empleo_id,
+       tiempo_primer_empleo_id, medio_primer_empleo_id, medio_primer_empleo_otro,
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
-       numero_control, linkedin, puesto_trabajo, coincidencia_laboral_id,
-       foto_url, registro_completo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', '', 1, ?, 0)`,
+       numero_control, linkedin, facebook, instagram, puesto_trabajo,
+       coincidencia_laboral_id, foto_url, registro_completo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
         [
           dto.nombre_completo,
           genero_id,
@@ -228,8 +247,13 @@ export class EgresadosService {
           situacion_laboral_id,
           dto.empresa || '',
           antiguedad_empleo_id,
+          tiempo_primer_empleo_id,
+          medio_primer_empleo_id,
+          medioOtro,
           dto.ciudad_trabajo || '',
           dto.satisfaccion_formacion,
+          facebook,
+          instagram,
           fotoUrl,
         ],
       );
@@ -709,52 +733,50 @@ export class EgresadosService {
       ORDER BY c.nombre_carrera, total DESC
     `, params);
 
-    // 15. Tiempo estimado para emplearse por carrera
+    // 15. Tiempo REAL para conseguir el primer empleo, por carrera
+    //     Lee el dato declarado por el egresado (catálogo tiempo_primer_empleo)
+    //     en lugar de estimarlo con YEAR(NOW()). El INNER JOIN excluye a los
+    //     egresados sin el dato (registros viejos = NULL). Se excluye además a
+    //     quien nunca se empleó ('Aún no he conseguido empleo').
     const tiempoEmpleoCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
         COUNT(*) AS total_egresados,
         ROUND(AVG(
-          GREATEST(
-            YEAR(NOW()) - CASE ae.rango
-              WHEN 'Menos de 1 año'  THEN 0.5
-              WHEN 'De 1 a 3 años'   THEN 2
-              WHEN 'Más de 3 años'   THEN 4
-              ELSE 0
-            END - e.anio_egreso,
-            0
-          )
-        ), 1) AS anios_promedio_para_emplearse
+          CASE tpe.rango
+            WHEN 'Menos de 3 meses'   THEN 0.125
+            WHEN 'De 3 a 6 meses'     THEN 0.375
+            WHEN 'De 6 meses a 1 año' THEN 0.75
+            WHEN 'De 1 a 2 años'      THEN 1.5
+            WHEN 'Más de 2 años'      THEN 2.5
+          END
+        ), 2) AS anios_promedio_para_emplearse
       FROM egresados e
-      LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
-      LEFT JOIN antiguedad_empleo ae ON e.antiguedad_empleo_id = ae.id_antiguedad
-      LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
+      LEFT JOIN carreras c          ON e.carrera_id              = c.id_carrera
+      JOIN tiempo_primer_empleo tpe ON e.tiempo_primer_empleo_id = tpe.id_tiempo
       ${where}
-      AND sl.situacion != 'Desempleado'
+      AND tpe.rango <> 'Aún no he conseguido empleo'
       GROUP BY c.nombre_carrera
       ORDER BY anios_promedio_para_emplearse ASC
     `, params);
 
-    // 16. Tiempo estimado global para emplearse (KPI)
+    // 16. Tiempo REAL promedio global para el primer empleo (KPI)
     const [tiempoEmpleoGeneral] = await this.dataSource.query(`
       SELECT
         ROUND(AVG(
-          GREATEST(
-            YEAR(NOW()) - CASE ae.rango
-              WHEN 'Menos de 1 año'  THEN 0.5
-              WHEN 'De 1 a 3 años'   THEN 2
-              WHEN 'Más de 3 años'   THEN 4
-              ELSE 0
-            END - e.anio_egreso,
-            0
-          )
-        ), 1) AS anios_promedio_general
+          CASE tpe.rango
+            WHEN 'Menos de 3 meses'   THEN 0.125
+            WHEN 'De 3 a 6 meses'     THEN 0.375
+            WHEN 'De 6 meses a 1 año' THEN 0.75
+            WHEN 'De 1 a 2 años'      THEN 1.5
+            WHEN 'Más de 2 años'      THEN 2.5
+          END
+        ), 2) AS anios_promedio_general
       FROM egresados e
-      LEFT JOIN antiguedad_empleo ae ON e.antiguedad_empleo_id = ae.id_antiguedad
-      LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
-      LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
+      LEFT JOIN carreras c          ON e.carrera_id              = c.id_carrera
+      JOIN tiempo_primer_empleo tpe ON e.tiempo_primer_empleo_id = tpe.id_tiempo
       ${where}
-      AND sl.situacion != 'Desempleado'
+      AND tpe.rango <> 'Aún no he conseguido empleo'
     `, params);
 
     // TITULACIÓN

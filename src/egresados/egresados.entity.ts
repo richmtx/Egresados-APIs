@@ -37,6 +37,17 @@ export class Egresado {
   @Column()
   antiguedad_empleo_id: number;
 
+  // ── NUEVO: primer empleo ──────────────────────────────────────────────
+  @Column({ type: 'int', nullable: true })
+  tiempo_primer_empleo_id: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  medio_primer_empleo_id: number | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  medio_primer_empleo_otro: string | null;
+  // ──────────────────────────────────────────────────────────────────────
+
   @Column({ type: 'varchar', length: 120 })
   ciudad_trabajo: string;
 
@@ -48,6 +59,14 @@ export class Egresado {
 
   @Column({ type: 'varchar', length: 255 })
   linkedin: string;
+
+  // ── NUEVO: redes sociales (opcionales) ────────────────────────────────
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  facebook: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  instagram: string | null;
+  // ──────────────────────────────────────────────────────────────────────
 
   @Column({ type: 'varchar', length: 150 })
   puesto_trabajo: string;
@@ -76,7 +95,6 @@ export class Egresado {
   @Column({ type: 'varchar', length: 100, nullable: true })
   revisado_por: string | null;
 
-  // Foto de perfil opcional — ruta relativa almacenada, ej: "uploads/fotos/1234-abc.jpg"
   @Column({ type: 'varchar', length: 255, nullable: true, default: null })
   foto_url: string | null;
 
