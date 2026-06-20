@@ -546,7 +546,12 @@ export class EgresadosService {
 
 
   // ESTADÍSTICAS
-  async getEstadisticas(carrera?: string, anio?: number): Promise<any> {
+  async getEstadisticas(
+    carrera?: string,
+    anio?: number,
+    tiempo?: string,
+    medio?: string,
+  ): Promise<any> {
 
     const params: any[] = [];
     const conditions: string[] = ['1=1'];
@@ -558,6 +563,18 @@ export class EgresadosService {
     if (anio) {
       conditions.push(`e.anio_egreso = ?`);
       params.push(anio);
+    }
+    if (tiempo) {
+      conditions.push(
+        `e.tiempo_primer_empleo_id = (SELECT id_tiempo FROM tiempo_primer_empleo WHERE rango = ?)`,
+      );
+      params.push(tiempo);
+    }
+    if (medio) {
+      conditions.push(
+        `e.medio_primer_empleo_id = (SELECT id_medio FROM medio_primer_empleo WHERE medio = ?)`,
+      );
+      params.push(medio);
     }
 
     const where = `WHERE ${conditions.join(' AND ')}`;
@@ -775,6 +792,21 @@ export class EgresadosService {
       ORDER BY c.nombre_carrera ASC, tpe.id_tiempo ASC
     `, params);
 
+    // 15-c. Medio por el que consiguieron el primer empleo
+    const medioPrimerEmpleo = await this.dataSource.query(`
+      SELECT
+        mpe.id_medio,
+        mpe.medio,
+        mpe.orden,
+        COUNT(*) AS total
+      FROM egresados e
+      LEFT JOIN carreras c         ON e.carrera_id             = c.id_carrera
+      JOIN medio_primer_empleo mpe ON e.medio_primer_empleo_id = mpe.id_medio
+      ${where}
+      GROUP BY mpe.id_medio, mpe.medio, mpe.orden
+      ORDER BY mpe.orden ASC
+    `, params);
+
     // 16. Tiempo REAL promedio global para el primer empleo (KPI)
     const [tiempoEmpleoGeneral] = await this.dataSource.query(`
       SELECT
@@ -877,6 +909,7 @@ export class EgresadosService {
       tiempoEmpleoCarrera,
       tiempoEmpleoGeneral,
       distribucionTiempoEmpleo,
+      medioPrimerEmpleo,
       titulacionCarrera,
       posgradoPorTipo,
       totalPosgrado,

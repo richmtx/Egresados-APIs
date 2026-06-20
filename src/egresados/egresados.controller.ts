@@ -364,9 +364,11 @@ export class EgresadosController {
   @Get('estadisticas')
   getEstadisticas(
     @Query('carrera') carrera?: string,
-    @Query('anio') anio?: string,
+    @Query('anio') anio?: number,
+    @Query('tiempo') tiempo?: string,
+    @Query('medio') medio?: string,
   ) {
-    return this.egresadosService.getEstadisticas(carrera, anio ? parseInt(anio) : undefined);
+    return this.egresadosService.getEstadisticas(carrera, anio, tiempo, medio);
   }
 
   @Get('estadisticas/genero')
