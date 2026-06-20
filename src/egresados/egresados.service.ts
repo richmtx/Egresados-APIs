@@ -760,6 +760,21 @@ export class EgresadosService {
       ORDER BY anios_promedio_para_emplearse ASC
     `, params);
 
+    // 15-b. Distribución REAL del tiempo al primer empleo, por carrera y rango
+    const distribucionTiempoEmpleo = await this.dataSource.query(`
+      SELECT
+        c.nombre_carrera,
+        tpe.id_tiempo,
+        tpe.rango,
+        COUNT(*) AS total
+      FROM egresados e
+      LEFT JOIN carreras c          ON e.carrera_id              = c.id_carrera
+      JOIN tiempo_primer_empleo tpe ON e.tiempo_primer_empleo_id = tpe.id_tiempo
+      ${where}
+      GROUP BY c.nombre_carrera, tpe.id_tiempo, tpe.rango
+      ORDER BY c.nombre_carrera ASC, tpe.id_tiempo ASC
+    `, params);
+
     // 16. Tiempo REAL promedio global para el primer empleo (KPI)
     const [tiempoEmpleoGeneral] = await this.dataSource.query(`
       SELECT
@@ -861,6 +876,7 @@ export class EgresadosService {
       coincidenciaCarrera,
       tiempoEmpleoCarrera,
       tiempoEmpleoGeneral,
+      distribucionTiempoEmpleo,
       titulacionCarrera,
       posgradoPorTipo,
       totalPosgrado,
