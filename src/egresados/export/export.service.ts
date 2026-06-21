@@ -383,35 +383,47 @@ export class ExportService {
         const path = require('path');
 
         const rows = await this.dataSource.query(`
-    SELECT
-      e.nombre_completo, e.correo, e.telefono, e.ciudad_residencia,
-      e.anio_egreso, e.empresa, e.ciudad_trabajo, e.numero_control,
-      e.linkedin, e.puesto_trabajo, e.estatus_titulacion,
-      e.satisfaccion_formacion, e.foto_url,
-      g.genero,
-      c.nombre_carrera,
-      ni.nivel        AS nivel_ingles,
-      ae.rango        AS antiguedad_empleo,
-      cl.nivel        AS coincidencia_laboral,
-      sl.situacion    AS situacion_laboral,
-      cv.respuesta    AS certificacion_vigente,
-      aut.autorizo_estadisticas,
-      aut.autorizo_contacto,
-      aut.autorizo_eventos
-    FROM egresados e
-    LEFT JOIN generos                  g   ON e.genero_id               = g.id_genero
-    LEFT JOIN carreras                 c   ON e.carrera_id              = c.id_carrera
-    LEFT JOIN niveles_ingles           ni  ON e.nivel_ingles_id         = ni.id_nivel
-    LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id    = ae.id_antiguedad
-    LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id = cl.id_coincidencia
-    LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id    = sl.id_situacion
-    LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id = cv.id_certificacion_vigente
-    LEFT JOIN autorizaciones           aut ON e.id_egresado             = aut.id_egresado
-    WHERE e.id_egresado = ?
-  `, [id]);
+            SELECT
+                e.nombre_completo, e.correo, e.telefono, e.ciudad_residencia,
+                e.anio_egreso, e.empresa, e.ciudad_trabajo, e.numero_control,
+                e.linkedin, e.puesto_trabajo, e.estatus_titulacion,
+                e.satisfaccion_formacion, e.foto_url,
+                e.facebook, e.instagram,
+                e.medio_primer_empleo_otro,
+                g.genero,
+                c.nombre_carrera,
+                ni.nivel        AS nivel_ingles,
+                ae.rango        AS antiguedad_empleo,
+                cl.nivel        AS coincidencia_laboral,
+                sl.situacion    AS situacion_laboral,
+                cv.respuesta    AS certificacion_vigente,
+                tpe.rango       AS tiempo_primer_empleo,
+                mpe.medio       AS medio_primer_empleo,
+                aut.autorizo_estadisticas,
+                aut.autorizo_contacto,
+                aut.autorizo_eventos
+            FROM egresados e
+            LEFT JOIN generos                  g   ON e.genero_id               = g.id_genero
+            LEFT JOIN carreras                 c   ON e.carrera_id              = c.id_carrera
+            LEFT JOIN niveles_ingles           ni  ON e.nivel_ingles_id         = ni.id_nivel
+            LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id    = ae.id_antiguedad
+            LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id = cl.id_coincidencia
+            LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id    = sl.id_situacion
+            LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id = cv.id_certificacion_vigente
+            LEFT JOIN tiempo_primer_empleo     tpe ON e.tiempo_primer_empleo_id = tpe.id_tiempo
+            LEFT JOIN medio_primer_empleo      mpe ON e.medio_primer_empleo_id  = mpe.id_medio
+            LEFT JOIN autorizaciones           aut ON e.id_egresado             = aut.id_egresado
+            WHERE e.id_egresado = ?
+            `, [id]);
 
         if (!rows.length) throw new Error(`Egresado ${id} no encontrado`);
         const e = rows[0];
+
+        // Si eligió "Otra", usamos el texto libre en lugar de la etiqueta del catálogo
+        const medioPrimerEmpleo =
+            e.medio_primer_empleo === 'Otra' && e.medio_primer_empleo_otro
+                ? e.medio_primer_empleo_otro
+                : e.medio_primer_empleo;
 
         const certificaciones = await this.dataSource.query(
             `SELECT nombre_certificacion FROM certificaciones WHERE id_egresado = ?`, [id],
@@ -550,7 +562,21 @@ export class ExportService {
             // ── Contenido ────────────────────────────────────────────────────────────
             let y = BANDA + 16;
 
+            const LIMITE_Y = 760; // deja aire para el footer (790)
+
+            const nuevaPaginaSiHaceFalta = (alto: number) => {
+                if (y + alto > LIMITE_Y) {
+                    doc.addPage({
+                        size: 'A4',
+                        layout: 'portrait',
+                        margins: { top: 40, bottom: 40, left: 40, right: 40 },
+                    });
+                    y = 50; // arranque de contenido en páginas siguientes (sin banda)
+                }
+            };
+
             const seccion = (titulo: string) => {
+                nuevaPaginaSiHaceFalta(46); // evita títulos huérfanos al final de página
                 doc.fontSize(7).fillColor(VINO).font('Helvetica-Bold')
                     .text(titulo.toUpperCase(), 40, y, { width: W, characterSpacing: 0.8 });
                 y += 13;
@@ -568,6 +594,7 @@ export class ExportService {
             };
 
             const campoFull = (label: string, valor: string) => {
+                nuevaPaginaSiHaceFalta(28);
                 doc.fontSize(7).fillColor(GRIS).font('Helvetica').text(label, 40, y, { width: W });
                 doc.fontSize(8.5).fillColor(NEGRO).font('Helvetica')
                     .text(valor || '—', 40, y + 10, { width: W });
@@ -575,6 +602,7 @@ export class ExportService {
             };
 
             const filaDos = (l1: string, v1: string, l2: string, v2: string) => {
+                nuevaPaginaSiHaceFalta(28);
                 campo(l1, v1, 'left');
                 campo(l2, v2, 'right');
                 y += 28;
@@ -586,6 +614,8 @@ export class ExportService {
             campoFull('Correo electrónico', e.correo || '—');
             filaDos('Teléfono', e.telefono || '—', 'Ciudad de residencia', e.ciudad_residencia || '—');
             if (e.linkedin) campoFull('LinkedIn', e.linkedin);
+            if (e.facebook) campoFull('Facebook', e.facebook);
+            if (e.instagram) campoFull('Instagram', e.instagram);
             y += 4;
 
             // ── DATOS ACADÉMICOS ─────────────────────────────────────────────────────
@@ -609,10 +639,12 @@ export class ExportService {
             seccion('Certificaciones');
             campoFull('Cuenta con certificación vigente', e.certificacion_vigente || '—');
             if (todasCertificaciones.length > 0) {
+                nuevaPaginaSiHaceFalta(25);
                 doc.fontSize(7).fillColor(GRIS).font('Helvetica')
                     .text('Certificaciones obtenidas', 40, y, { width: W });
                 y += 12;
                 todasCertificaciones.forEach(cert => {
+                    nuevaPaginaSiHaceFalta(13);
                     doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
                         .text(`- ${cert}`, 44, y, { width: W - 4 });
                     y += 13;
@@ -626,12 +658,15 @@ export class ExportService {
             campoFull('Puesto', e.puesto_trabajo || '—');
             filaDos('Ciudad de trabajo', e.ciudad_trabajo || '—', 'Antigüedad', e.antiguedad_empleo || '—');
             campoFull('Coincidencia con carrera', e.coincidencia_laboral || '—');
+            campoFull('Tiempo en conseguir el primer empleo', e.tiempo_primer_empleo || '—');
+            campoFull('Medio para obtener el primer empleo', medioPrimerEmpleo || '—');
             y += 4;
 
             // ── HABILIDADES ──────────────────────────────────────────────────────────
             if (todasHabilidades.length > 0) {
                 seccion('Habilidades a reforzar');
                 todasHabilidades.forEach(hab => {
+                    nuevaPaginaSiHaceFalta(13);
                     doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
                         .text(`- ${hab}`, 44, y, { width: W - 4 });
                     y += 13;
@@ -643,6 +678,7 @@ export class ExportService {
             if (todasColaboraciones.length > 0) {
                 seccion('Interés en colaborar');
                 todasColaboraciones.forEach(col => {
+                    nuevaPaginaSiHaceFalta(13);
                     doc.fontSize(8).fillColor(NEGRO).font('Helvetica')
                         .text(`- ${col}`, 44, y, { width: W - 4 });
                     y += 13;
@@ -658,6 +694,7 @@ export class ExportService {
                 { label: 'Eventos', val: e.autorizo_eventos },
             ];
             auths.forEach(a => {
+                nuevaPaginaSiHaceFalta(20);
                 doc.fontSize(8.5).fillColor(NEGRO).font('Helvetica')
                     .text(a.label, 40, y, { continued: true, width: 200 });
                 doc.fillColor(authColor(a.val)).font('Helvetica-Bold')

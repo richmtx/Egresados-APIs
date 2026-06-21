@@ -203,9 +203,13 @@ export class EgresadosController {
   async exportEmpleabilidadPdf(
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
+    @Query('tiempo') tiempo?: string,
+    @Query('medio') medio?: string,
     @Res() res?: any,
   ) {
-    const buffer = await this.exportEstadisticasService.exportarEmpleabilidadPdf(carrera, anio ? +anio : undefined);
+    const buffer = await this.exportEstadisticasService.exportarEmpleabilidadPdf(
+      carrera, anio ? +anio : undefined, tiempo, medio,
+    );
     const fecha = new Date().toISOString().split('T')[0];
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="empleabilidad_${fecha}.pdf"`, 'Content-Length': buffer.length });
     res.end(buffer);
@@ -215,9 +219,13 @@ export class EgresadosController {
   async exportEmpleabilidadExcel(
     @Query('carrera') carrera?: string,
     @Query('anio') anio?: string,
+    @Query('tiempo') tiempo?: string,
+    @Query('medio') medio?: string,
     @Res() res?: any,
   ) {
-    const buffer = await this.exportEstadisticasService.exportarEmpleabilidadExcel(carrera, anio ? +anio : undefined);
+    const buffer = await this.exportEstadisticasService.exportarEmpleabilidadExcel(
+      carrera, anio ? +anio : undefined, tiempo, medio,
+    );
     const fecha = new Date().toISOString().split('T')[0];
     res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="empleabilidad_${fecha}.xlsx"`, 'Content-Length': buffer.length });
     res.end(buffer);

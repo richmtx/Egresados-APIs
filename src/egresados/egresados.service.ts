@@ -485,57 +485,70 @@ export class EgresadosService {
   // GET PERFIL
   async getPerfil(id: number): Promise<any> {
     const rows = await this.dataSource.query(`
-      SELECT
-        e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-        e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
-        e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
-        e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
-        g.genero, c.nombre_carrera,
-        ni.nivel        AS nivel_ingles,
-        ae.rango        AS antiguedad_empleo,
-        cl.nivel        AS coincidencia_laboral,
-        sl.situacion    AS situacion_laboral,
-        cv.respuesta    AS certificacion_vigente,
-        aut.autorizo_estadisticas,
-        aut.autorizo_contacto,
-        aut.autorizo_eventos
-      FROM egresados e
-      LEFT JOIN generos                  g   ON e.genero_id                = g.id_genero
-      LEFT JOIN carreras                 c   ON e.carrera_id               = c.id_carrera
-      LEFT JOIN niveles_ingles           ni  ON e.nivel_ingles_id          = ni.id_nivel
-      LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id     = ae.id_antiguedad
-      LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id  = cl.id_coincidencia
-      LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id     = sl.id_situacion
-      LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id = cv.id_certificacion_vigente
-      LEFT JOIN autorizaciones           aut ON e.id_egresado              = aut.id_egresado
-      WHERE e.id_egresado = ?
-    `, [id]);
+    SELECT
+      e.id_egresado, e.nombre_completo, e.correo, e.telefono,
+      e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
+      e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
+      e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
+      e.facebook, e.instagram,
+      e.medio_primer_empleo_otro,
+      g.genero, c.nombre_carrera,
+      ni.nivel        AS nivel_ingles,
+      ae.rango        AS antiguedad_empleo,
+      cl.nivel        AS coincidencia_laboral,
+      sl.situacion    AS situacion_laboral,
+      cv.respuesta    AS certificacion_vigente,
+      tpe.rango       AS tiempo_primer_empleo,
+      mpe.medio       AS medio_primer_empleo,
+      aut.autorizo_estadisticas,
+      aut.autorizo_contacto,
+      aut.autorizo_eventos
+    FROM egresados e
+    LEFT JOIN generos                  g   ON e.genero_id                = g.id_genero
+    LEFT JOIN carreras                 c   ON e.carrera_id               = c.id_carrera
+    LEFT JOIN niveles_ingles           ni  ON e.nivel_ingles_id          = ni.id_nivel
+    LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id     = ae.id_antiguedad
+    LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id  = cl.id_coincidencia
+    LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id     = sl.id_situacion
+    LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id = cv.id_certificacion_vigente
+    LEFT JOIN tiempo_primer_empleo     tpe ON e.tiempo_primer_empleo_id  = tpe.id_tiempo
+    LEFT JOIN medio_primer_empleo      mpe ON e.medio_primer_empleo_id   = mpe.id_medio
+    LEFT JOIN autorizaciones           aut ON e.id_egresado              = aut.id_egresado
+    WHERE e.id_egresado = ?
+  `, [id]);
 
     if (!rows.length) throw new NotFoundException(`Egresado ${id} no encontrado.`);
     const egresado = rows[0];
+
+    // Si eligió "Otra", mostramos el texto libre en lugar de la etiqueta del catálogo
+    const medioFinal =
+      egresado.medio_primer_empleo === 'Otra' && egresado.medio_primer_empleo_otro
+        ? `Otra: ${egresado.medio_primer_empleo_otro}`
+        : egresado.medio_primer_empleo;
 
     const certificaciones = await this.dataSource.query(
       `SELECT nombre_certificacion FROM certificaciones WHERE id_egresado = ?`, [id],
     );
     const habilidades = await this.dataSource.query(`
-      SELECT h.habilidad FROM egresado_habilidades eh
-      JOIN habilidades h ON eh.id_habilidad = h.id_habilidad
-      WHERE eh.id_egresado = ?
-    `, [id]);
+    SELECT h.habilidad FROM egresado_habilidades eh
+    JOIN habilidades h ON eh.id_habilidad = h.id_habilidad
+    WHERE eh.id_egresado = ?
+  `, [id]);
     const habilidadesOtro = await this.dataSource.query(
       `SELECT descripcion FROM habilidades_otro WHERE id_egresado = ?`, [id],
     );
     const colaboraciones = await this.dataSource.query(`
-      SELECT c.descripcion FROM egresado_colaboraciones ec
-      JOIN colaboraciones c ON ec.id_colaboracion = c.id_colaboracion
-      WHERE ec.id_egresado = ?
-    `, [id]);
+    SELECT c.descripcion FROM egresado_colaboraciones ec
+    JOIN colaboraciones c ON ec.id_colaboracion = c.id_colaboracion
+    WHERE ec.id_egresado = ?
+  `, [id]);
     const colaboracionesOtro = await this.dataSource.query(
       `SELECT descripcion FROM colaboracion_otro WHERE id_egresado = ?`, [id],
     );
 
     return {
       ...egresado,
+      medio_primer_empleo: medioFinal,
       certificaciones: certificaciones.map((r: any) => r.nombre_certificacion),
       habilidades: habilidades.map((r: any) => r.habilidad),
       habilidades_otro: habilidadesOtro.map((r: any) => r.descripcion),
@@ -543,7 +556,6 @@ export class EgresadosService {
       colaboraciones_otro: colaboracionesOtro.map((r: any) => r.descripcion),
     };
   }
-
 
   // ESTADÍSTICAS
   async getEstadisticas(

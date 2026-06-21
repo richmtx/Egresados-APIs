@@ -17,6 +17,39 @@ const MARGIN_X = 28;
 export class ExportEstadisticasService {
   constructor(private readonly egresadosService: EgresadosService) { }
 
+  private readonly ORDEN_RANGOS_TIEMPO = [
+    'Menos de 3 meses',
+    'De 3 a 6 meses',
+    'De 6 meses a 1 año',
+    'De 1 a 2 años',
+    'Más de 2 años',
+    'Aún no he conseguido empleo',
+  ];
+
+  private filtroDescEmpleo(carrera?: string, anio?: number, tiempo?: string, medio?: string): string {
+    const p: string[] = [];
+    if (carrera) p.push(`Carrera: ${carrera}`);
+    if (anio) p.push(`Año: ${anio}`);
+    if (tiempo) p.push(`Tiempo: ${tiempo}`);
+    if (medio) p.push(`Medio: ${medio}`);
+    return p.length ? p.join('  |  ') : 'Sin filtros';
+  }
+
+  private formatTiempoMeses(anios: number): string {
+    const totalMeses = Math.round((Number(anios) || 0) * 12);
+    if (totalMeses <= 0) return '—';
+
+    if (totalMeses < 12) {
+      return `${totalMeses} ${totalMeses === 1 ? 'mes' : 'meses'}`;
+    }
+
+    const aniosEnteros = Math.floor(totalMeses / 12);
+    const meses = totalMeses % 12;
+    const parteAnios = `${aniosEnteros} ${aniosEnteros === 1 ? 'año' : 'años'}`;
+
+    return meses === 0 ? parteAnios : `${parteAnios} y ${meses} ${meses === 1 ? 'mes' : 'meses'}`;
+  }
+
   private fechaStr(): string {
     return new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
   }
@@ -511,10 +544,10 @@ export class ExportEstadisticasService {
 
   // PÁGINA 2 — Empleabilidad
 
-  async exportarEmpleabilidadPdf(carrera?: string, anio?: number): Promise<Buffer> {
-    const data = await this.egresadosService.getEstadisticas(carrera, anio);
+  async exportarEmpleabilidadPdf(carrera?: string, anio?: number, tiempo?: string, medio?: string): Promise<Buffer> {
+    const data = await this.egresadosService.getEstadisticas(carrera, anio, tiempo, medio);
     const fecha = this.fechaStr();
-    const filtros = this.filtroDesc(carrera, anio);
+    const filtros = this.filtroDescEmpleo(carrera, anio, tiempo, medio);
     const doc = this.pdfDoc();
     const bufPromise = this.collectBuffer(doc);
     const onNewPage = () => this.pdfNewPage(doc);
@@ -563,18 +596,59 @@ export class ExportEstadisticasService {
       [220, 80, 80, 80], MARGIN_X, y, onNewPage,
     );
 
+    // 3.1) Distribución de Tiempo para Emplearse (por rango)
+    const distTiempo = data.distribucionTiempoEmpleo ?? [];
+    if (distTiempo.length > 0) {
+      const totalPorRango: Record<string, number> = {};
+      for (const f of distTiempo) {
+        totalPorRango[f.rango] = (totalPorRango[f.rango] || 0) + Number(f.total);
+      }
+      const rangos = this.ORDEN_RANGOS_TIEMPO.filter(r => (totalPorRango[r] || 0) > 0);
+      const totalTiempo = rangos.reduce((a, r) => a + totalPorRango[r], 0) || 1;
+
+      y = this.pdfSection(doc, 'Distribución de Tiempo para Emplearse', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Rango de Tiempo', 'Egresados', '%'],
+        rangos.map(r => [
+          r,
+          String(totalPorRango[r]),
+          `${((totalPorRango[r] / totalTiempo) * 100).toFixed(1)}%`,
+        ]),
+        [280, 100, 100], MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // 3.2) Medio de Obtención del Primer Empleo
+    const mediosEmpleo = [...(data.medioPrimerEmpleo ?? [])]
+      .sort((a: any, b: any) => Number(a.orden) - Number(b.orden));
+    if (mediosEmpleo.length > 0) {
+      const totalMedio = mediosEmpleo.reduce((a, m: any) => a + Number(m.total), 0) || 1;
+      y = this.pdfSection(doc, 'Medio de Obtención del Primer Empleo', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Medio', 'Egresados', '%'],
+        mediosEmpleo.map((m: any) => [
+          m.medio || '—',
+          String(m.total),
+          `${((Number(m.total) / totalMedio) * 100).toFixed(1)}%`,
+        ]),
+        [280, 100, 100], MARGIN_X, y, onNewPage,
+      );
+    }
+
     // 4) Tiempo para Emplearse
     if ((data.tiempoEmpleoCarrera || []).length > 0) {
       y = this.pdfSection(doc, 'Tiempo para Emplearse por Carrera', y, onNewPage);
       y = this.pdfTable(
         doc,
-        ['Carrera', 'Total Egresados', 'Años Prom.'],
+        ['Carrera', 'Total Egresados', 'Tiempo Prom.'],
         (data.tiempoEmpleoCarrera || [])
           .sort((a: any, b: any) => +(a.anios_promedio_para_emplearse) - +(b.anios_promedio_para_emplearse))
           .map((r: any) => [
             r.nombre_carrera,
             String(r.total_egresados),
-            `${(+(r.anios_promedio_para_emplearse) || 0).toFixed(2)} años`,
+            this.formatTiempoMeses(+(r.anios_promedio_para_emplearse) || 0),
           ]),
         [280, 100, 120], MARGIN_X, y, onNewPage,
       );
@@ -621,12 +695,12 @@ export class ExportEstadisticasService {
     // 7) Detalle por Carrera (resumen cruzado: empleo + tiempo + coincidencia positiva)
     y = this.pdfSection(doc, 'Detalle por Carrera', y, onNewPage);
 
-    // Construir mapa de tiempo por carrera
+    // Construir mapa de tiempo por carrera (en meses)
     const tiempoMap = new Map<string, string>();
     for (const t of data.tiempoEmpleoCarrera || []) {
       tiempoMap.set(
         t.nombre_carrera,
-        `${(+(t.anios_promedio_para_emplearse) || 0).toFixed(1)} años`,
+        this.formatTiempoMeses(+(t.anios_promedio_para_emplearse) || 0),
       );
     }
 
@@ -647,34 +721,30 @@ export class ExportEstadisticasService {
     }
 
     const detalleRows = (data.empleabilidadCarrera || []).map((r: any) => {
-      const ct = coincTotal.get(r.nombre_carrera) || 0;
-      const cp = coincPos.get(r.nombre_carrera) || 0;
-      const pctCoincidencia = ct > 0 ? `${Math.round((cp / ct) * 100)}%` : '—';
       return [
         r.nombre_carrera,
         String(r.total),
+        String(r.empleados),
         r.total > 0 ? `${((r.empleados / r.total) * 100).toFixed(1)}%` : '0%',
         tiempoMap.get(r.nombre_carrera) || '—',
-        pctCoincidencia,
       ];
     });
 
     y = this.pdfTable(
       doc,
-      ['Carrera', 'Total', '% Empleados', 'Tiempo Empleo', '% Coincidencia'],
+      ['Carrera', 'Total Egresados', 'Empleados', 'Tasa de Empleo', 'Tiempo Estimado (Prom.)'],
       detalleRows,
-      [200, 60, 90, 100, 110], MARGIN_X, y, onNewPage,
+      [200, 90, 80, 90, 100], MARGIN_X, y, onNewPage,
     );
-
     this.pdfFooter(doc, fecha);
     doc.end();
     return bufPromise;
   }
 
-  async exportarEmpleabilidadExcel(carrera?: string, anio?: number): Promise<Buffer> {
-    const data = await this.egresadosService.getEstadisticas(carrera, anio);
+  async exportarEmpleabilidadExcel(carrera?: string, anio?: number, tiempo?: string, medio?: string): Promise<Buffer> {
+    const data = await this.egresadosService.getEstadisticas(carrera, anio, tiempo, medio);
     const fecha = this.fechaStr();
-    const filtros = this.filtroDesc(carrera, anio);
+    const filtros = this.filtroDescEmpleo(carrera, anio, tiempo, medio);
     const { wb, addSheet } = this.makeWorkbook('Empleabilidad', filtros, fecha, () => 0);
     const k = data.kpis;
     const total = k.total_egresados || 1;
@@ -730,10 +800,14 @@ export class ExportEstadisticasService {
         { key: 't', width: 18 },
         { key: 'a', width: 28 },
       ];
-      this.excelTable(ws, ['Carrera', 'Total Egresados', 'Años Promedio para Emplearse'],
+      this.excelTable(ws, ['Carrera', 'Total Egresados', 'Tiempo Promedio para Emplearse'],
         [...(data.tiempoEmpleoCarrera || [])]
           .sort((a: any, b: any) => +(a.anios_promedio_para_emplearse) - +(b.anios_promedio_para_emplearse))
-          .map((r: any) => [r.nombre_carrera, r.total_egresados, r.anios_promedio_para_emplearse]),
+          .map((r: any) => [
+            r.nombre_carrera,
+            r.total_egresados,
+            this.formatTiempoMeses(+(r.anios_promedio_para_emplearse) || 0),
+          ]),
         4,
       );
     }
@@ -773,59 +847,69 @@ export class ExportEstadisticasService {
       const ws = addSheet('Detalle por Carrera', 5, 'Detalle por Carrera');
       ws.columns = [
         { key: 'c', width: 38 },
-        { key: 't', width: 12 },
-        { key: 'pe', width: 16 },
-        { key: 'te', width: 24 },
-        { key: 'pc', width: 20 },
+        { key: 't', width: 16 },
+        { key: 'e', width: 14 },
+        { key: 'te', width: 16 },
+        { key: 'tp', width: 24 },
       ];
 
-      // Mapa tiempo promedio por carrera
-      const tiempoMap = new Map<string, number>();
+      // Mapa tiempo por carrera (en meses, ya formateado)
+      const tiempoMap = new Map<string, string>();
       for (const t of data.tiempoEmpleoCarrera || []) {
-        tiempoMap.set(t.nombre_carrera, +(t.anios_promedio_para_emplearse) || 0);
+        tiempoMap.set(t.nombre_carrera, this.formatTiempoMeses(+(t.anios_promedio_para_emplearse) || 0));
       }
 
-      // Mapa coincidencia positiva por carrera
-      const coincPos = new Map<string, number>();
-      const coincTotal = new Map<string, number>();
-      for (const c of data.coincidenciaCarrera || []) {
-        coincTotal.set(c.nombre_carrera, (coincTotal.get(c.nombre_carrera) || 0) + Number(c.total));
-        const esPositiva =
-          c.coincidencia?.toLowerCase().includes('alta') ||
-          c.coincidencia?.toLowerCase().includes('totalmente') ||
-          c.coincidencia?.toLowerCase().includes('relacionad') ||
-          c.coincidencia?.toLowerCase().includes('gran medida');
-        if (esPositiva) {
-          coincPos.set(c.nombre_carrera, (coincPos.get(c.nombre_carrera) || 0) + Number(c.total));
-        }
-      }
-
-      const detalleRows = (data.empleabilidadCarrera || []).map((r: any) => {
-        const ct = coincTotal.get(r.nombre_carrera) || 0;
-        const cp = coincPos.get(r.nombre_carrera) || 0;
-        return [
-          r.nombre_carrera,
-          r.total,
-          r.total > 0 ? +((r.empleados / r.total) * 100).toFixed(2) : 0,
-          tiempoMap.get(r.nombre_carrera) ?? null,
-          ct > 0 ? +((cp / ct) * 100).toFixed(2) : null,
-        ];
-      });
+      const detalleRows = (data.empleabilidadCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        r.total,
+        r.empleados,
+        r.total > 0 ? +((r.empleados / r.total) * 100).toFixed(2) : 0,
+        tiempoMap.get(r.nombre_carrera) ?? '—',
+      ]);
 
       const nextRow = this.excelTable(
         ws,
-        ['Carrera', 'Total Egresados', '% Empleados', 'Años Prom. para Emplearse', '% Coincidencia Positiva'],
+        ['Carrera', 'Total Egresados', 'Empleados', 'Tasa de Empleo (%)', 'Tiempo Estimado (Prom.)'],
         detalleRows,
         4,
       );
 
-      // Formato numérico para columnas de porcentaje y tiempo
+      // Formato de porcentaje solo en la columna de Tasa de Empleo
       for (let r = 5; r < nextRow; r++) {
-        const row = ws.getRow(r);
-        row.getCell(3).numFmt = '0.00"%"';
-        row.getCell(4).numFmt = '0.00';
-        row.getCell(5).numFmt = '0.00"%"';
+        ws.getRow(r).getCell(4).numFmt = '0.00"%"';
       }
+    }
+
+    // Distribución de Tiempo para Emplearse
+    {
+      const distTiempo = data.distribucionTiempoEmpleo ?? [];
+      const totalPorRango: Record<string, number> = {};
+      for (const f of distTiempo) {
+        totalPorRango[f.rango] = (totalPorRango[f.rango] || 0) + Number(f.total);
+      }
+      const rangos = this.ORDEN_RANGOS_TIEMPO.filter(r => (totalPorRango[r] || 0) > 0);
+      const totalTiempo = rangos.reduce((a, r) => a + totalPorRango[r], 0) || 1;
+
+      const ws = addSheet('Tiempo (Distribución)', 3, 'Distribución de Tiempo para Emplearse');
+      ws.columns = [{ key: 'r', width: 30 }, { key: 't', width: 15 }, { key: 'p', width: 16 }];
+      this.excelTable(ws, ['Rango de Tiempo', 'Egresados', '% del Total'],
+        rangos.map(r => [r, totalPorRango[r], +((totalPorRango[r] / totalTiempo) * 100).toFixed(2)]),
+        4,
+      );
+    }
+
+    // Medio de Obtención del Primer Empleo
+    {
+      const mediosEmpleo = [...(data.medioPrimerEmpleo ?? [])]
+        .sort((a: any, b: any) => Number(a.orden) - Number(b.orden));
+      const totalMedio = mediosEmpleo.reduce((a, m: any) => a + Number(m.total), 0) || 1;
+
+      const ws = addSheet('Medio Primer Empleo', 3, 'Medio de Obtención del Primer Empleo');
+      ws.columns = [{ key: 'm', width: 38 }, { key: 't', width: 15 }, { key: 'p', width: 16 }];
+      this.excelTable(ws, ['Medio', 'Egresados', '% del Total'],
+        mediosEmpleo.map((m: any) => [m.medio || '—', Number(m.total), +((Number(m.total) / totalMedio) * 100).toFixed(2)]),
+        4,
+      );
     }
 
     return this.toBuffer(wb);
