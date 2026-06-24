@@ -1776,7 +1776,7 @@ export class ExportEstadisticasService {
     // Construido desde data.resumen + inglés avanzado calculado arriba
     // Score = promedio simple de los 5 indicadores normalizados a 0–100
     y = this.pdfSection(doc, 'Comparativa Visual — Ranking Consolidado', y, onNewPage);
-    this.pdfTable(
+    y = this.pdfTable(
       doc,
       ['#', 'Carrera', '% Emp.', '% Tit.', '% Inglés', '% F.Dgo.', 'Satisf.', 'Score'],
       (data.resumen || [])
@@ -1805,6 +1805,54 @@ export class ExportEstadisticasService {
       [25, 165, 55, 50, 62, 58, 58, 57],
       MARGIN_X, y, onNewPage,
     );
+
+    // ── TABLA 14 — Tiempo al Primer Empleo por Carrera ───────────────────────
+    // Fuente: data.tiempoPrimerEmpleo  → filas por carrera·rango
+    // Campos reales: nombre_carrera, id_tiempo, rango, total, porcentaje
+    if ((data.tiempoPrimerEmpleo || []).length > 0) {
+      y = this.pdfSection(doc, 'Tiempo al Primer Empleo por Carrera', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Carrera', 'Rango de Tiempo', 'Egresados', '%'],
+        [...(data.tiempoPrimerEmpleo || [])]
+          .sort((a: any, b: any) =>
+            a.nombre_carrera.localeCompare(b.nombre_carrera) ||
+            Number(a.id_tiempo) - Number(b.id_tiempo),
+          )
+          .map((r: any) => [
+            r.nombre_carrera,
+            r.rango || '—',
+            String(r.total),
+            `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+          ]),
+        [200, 190, 75, 70],
+        MARGIN_X, y, onNewPage,
+      );
+    }
+
+    // ── TABLA 15 — Medio del Primer Empleo por Carrera ───────────────────────
+    // Fuente: data.medioPrimerEmpleo  → filas por carrera·medio
+    // Campos reales: nombre_carrera, id_medio, medio, orden, total, porcentaje
+    if ((data.medioPrimerEmpleo || []).length > 0) {
+      y = this.pdfSection(doc, 'Medio del Primer Empleo por Carrera', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Carrera', 'Medio', 'Egresados', '%'],
+        [...(data.medioPrimerEmpleo || [])]
+          .sort((a: any, b: any) =>
+            a.nombre_carrera.localeCompare(b.nombre_carrera) ||
+            Number(a.orden) - Number(b.orden),
+          )
+          .map((r: any) => [
+            r.nombre_carrera,
+            r.medio || '—',
+            String(r.total),
+            `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+          ]),
+        [200, 190, 75, 70],
+        MARGIN_X, y, onNewPage,
+      );
+    }
 
     this.pdfFooter(doc, fecha);
     doc.end();
@@ -2126,6 +2174,46 @@ export class ExportEstadisticasService {
             +item.migr.toFixed(1),
             +item.satisf.toFixed(2),
             item.score,
+          ]), 4);
+    }
+
+    // ── HOJA 14 — Tiempo al Primer Empleo por Carrera ────────────────────────
+    {
+      const ws = addSheet('Tiempo Primer Empleo', 4, 'Tiempo al Primer Empleo por Carrera');
+      ws.columns = [
+        { key: 'c', width: 35 }, { key: 'r', width: 28 },
+        { key: 't', width: 12 }, { key: 'p', width: 14 },
+      ];
+      this.excelTable(ws,
+        ['Carrera', 'Rango de Tiempo', 'Egresados', 'Porcentaje (%)'],
+        [...(data.tiempoPrimerEmpleo || [])]
+          .sort((a: any, b: any) =>
+            a.nombre_carrera.localeCompare(b.nombre_carrera) ||
+            Number(a.id_tiempo) - Number(b.id_tiempo),
+          )
+          .map((r: any) => [
+            r.nombre_carrera, r.rango || '—', r.total,
+            +(+(r.porcentaje) || 0).toFixed(1),
+          ]), 4);
+    }
+
+    // ── HOJA 15 — Medio del Primer Empleo por Carrera ────────────────────────
+    {
+      const ws = addSheet('Medio Primer Empleo', 4, 'Medio del Primer Empleo por Carrera');
+      ws.columns = [
+        { key: 'c', width: 35 }, { key: 'm', width: 28 },
+        { key: 't', width: 12 }, { key: 'p', width: 14 },
+      ];
+      this.excelTable(ws,
+        ['Carrera', 'Medio', 'Egresados', 'Porcentaje (%)'],
+        [...(data.medioPrimerEmpleo || [])]
+          .sort((a: any, b: any) =>
+            a.nombre_carrera.localeCompare(b.nombre_carrera) ||
+            Number(a.orden) - Number(b.orden),
+          )
+          .map((r: any) => [
+            r.nombre_carrera, r.medio || '—', r.total,
+            +(+(r.porcentaje) || 0).toFixed(1),
           ]), 4);
     }
 

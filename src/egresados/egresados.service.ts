@@ -1851,6 +1851,49 @@ export class EgresadosService {
     ORDER BY pct_fuera_durango DESC
   `, carreras);
 
+    // 7. Tiempo al primer empleo × carrera (distribución por rango)
+    //    INNER JOIN excluye registros viejos sin el dato (NULL), así el
+    //    porcentaje es sobre quienes sí respondieron la pregunta.
+    const tiempoPrimerEmpleo = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      tpe.id_tiempo,
+      tpe.rango,
+      COUNT(*)                                                                    AS total,
+      ROUND(
+        COUNT(*) * 100.0
+        / SUM(COUNT(*)) OVER (PARTITION BY c.nombre_carrera), 1
+      )                                                                           AS porcentaje
+    FROM egresados e
+    LEFT JOIN carreras c          ON e.carrera_id              = c.id_carrera
+    JOIN tiempo_primer_empleo tpe ON e.tiempo_primer_empleo_id = tpe.id_tiempo
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera, tpe.id_tiempo, tpe.rango
+    ORDER BY c.nombre_carrera ASC, tpe.id_tiempo ASC
+  `, carreras);
+
+    // 8. Medio del primer empleo × carrera
+    //    INNER JOIN a medio_primer_empleo deja fuera a quien nunca se empleó
+    //    (medio = NULL), así el % es sobre quienes obtuvieron empleo.
+    const medioPrimerEmpleo = await this.dataSource.query(`
+    SELECT
+      c.nombre_carrera,
+      mpe.id_medio,
+      mpe.medio,
+      mpe.orden,
+      COUNT(*)                                                                    AS total,
+      ROUND(
+        COUNT(*) * 100.0
+        / SUM(COUNT(*)) OVER (PARTITION BY c.nombre_carrera), 1
+      )                                                                           AS porcentaje
+    FROM egresados e
+    LEFT JOIN carreras c         ON e.carrera_id             = c.id_carrera
+    JOIN medio_primer_empleo mpe ON e.medio_primer_empleo_id = mpe.id_medio
+    WHERE c.nombre_carrera IN (${placeholders})
+    GROUP BY c.nombre_carrera, mpe.id_medio, mpe.medio, mpe.orden
+    ORDER BY c.nombre_carrera ASC, mpe.orden ASC
+  `, carreras);
+
     // 7. Resumen global — un objeto por carrera con todos los KPIs clave
     const resumen = await this.dataSource.query(`
     SELECT
@@ -1882,6 +1925,8 @@ export class EgresadosService {
       ingles,
       satisfaccion,
       migracion,
+      tiempoPrimerEmpleo,
+      medioPrimerEmpleo,
     };
   }
 
