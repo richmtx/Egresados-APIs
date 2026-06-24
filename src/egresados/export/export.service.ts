@@ -130,12 +130,12 @@ export class ExportService {
             doc.on('end', () => resolve(Buffer.concat(chunks)));
             doc.on('error', reject);
 
-            const VINO = '#6b1232';   // ← color actualizado
+            const VINO = '#6b1232';  
             const GRIS = '#6B7280';
             const NEGRO = '#1F2937';
             const W = 791;
             const COL = [18, 140, 100, 34, 110, 96, 58, 72, 44, 44, 54];
-            const ROW_H = 32;          // ← más alto para que respire el texto
+            const ROW_H = 32;
             const HDR_H = 20;
 
             // ── Header ──────────────────────────────────────────────────────────
@@ -212,9 +212,9 @@ export class ExportService {
                         .text(val, x + 3, y + 4, {
                             width: COL[idx] - 6,
                             align: idx === 0 || idx === 3 || idx >= 8 ? 'center' : 'left',
-                            lineBreak: esMultilinea,   // ← permite wrap en columnas anchas
-                            ellipsis: !esMultilinea,  // ← ellipsis solo en cols fijas
-                            height: ROW_H - 6,      // ← limita al alto de la fila
+                            lineBreak: esMultilinea,
+                            ellipsis: !esMultilinea,
+                            height: ROW_H - 6,
                         });
                     x += COL[idx];
                 });
@@ -372,7 +372,6 @@ export class ExportService {
         // Autofilter
         sheet.autoFilter = { from: 'A4', to: 'K4' };
 
-        // ← Fix del error de tipo: writeBuffer devuelve ArrayBuffer, lo convertimos a Buffer
         const arrayBuffer = await workbook.xlsx.writeBuffer();
         return Buffer.from(arrayBuffer);
     }
@@ -463,7 +462,7 @@ export class ExportService {
         const GRIS = '#6B7280';
         const NEGRO = '#111827';
         const W = 535;
-        const BANDA = 100; // altura banda superior (un poco más alta para foto)
+        const BANDA = 100;
 
         const authLabel = (val: any) => val ? 'Autorizado' : 'No autorizado';
         const authColor = (val: any) => val ? '#16A34A' : '#DC2626';
@@ -534,7 +533,7 @@ export class ExportService {
                 } catch (err) {
                     doc.restore();
                     console.error('PDFKit no pudo renderizar la foto (¿formato no soportado?):', err);
-                    fotoBuffer = null; // así el texto no se desplaza a la derecha si la imagen falló
+                    fotoBuffer = null;
                 }
             }
 
@@ -562,7 +561,7 @@ export class ExportService {
             // ── Contenido ────────────────────────────────────────────────────────────
             let y = BANDA + 16;
 
-            const LIMITE_Y = 760; // deja aire para el footer (790)
+            const LIMITE_Y = 760; 
 
             const nuevaPaginaSiHaceFalta = (alto: number) => {
                 if (y + alto > LIMITE_Y) {
@@ -571,12 +570,12 @@ export class ExportService {
                         layout: 'portrait',
                         margins: { top: 40, bottom: 40, left: 40, right: 40 },
                     });
-                    y = 50; // arranque de contenido en páginas siguientes (sin banda)
+                    y = 50; 
                 }
             };
 
             const seccion = (titulo: string) => {
-                nuevaPaginaSiHaceFalta(46); // evita títulos huérfanos al final de página
+                nuevaPaginaSiHaceFalta(46); 
                 doc.fontSize(7).fillColor(VINO).font('Helvetica-Bold')
                     .text(titulo.toUpperCase(), 40, y, { width: W, characterSpacing: 0.8 });
                 y += 13;
