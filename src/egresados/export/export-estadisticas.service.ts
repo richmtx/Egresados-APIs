@@ -2539,10 +2539,10 @@ export class ExportEstadisticasService {
     // 8) Coincidencia y Tiempo
     y = this.pdfSection(doc, 'Coincidencia Laboral y Tiempo para Emplearse', y, onNewPage);
 
-    // Tiempo por género
+    // Tiempo por género (ya viene en meses desde el backend)
     const tiempoMap = new Map<string, string>();
     for (const t of data.tiempoEmpleoGenero || []) {
-      tiempoMap.set(t.genero, `${(+(t.tiempo_promedio_anios) || 0).toFixed(1)} años`);
+      tiempoMap.set(t.genero, `${(+(t.tiempo_promedio_meses) || 0).toFixed(1)} meses`);
     }
     // Coincidencia positiva por género
     const coincPosGenero = new Map<string, number>();
@@ -2568,7 +2568,7 @@ export class ExportEstadisticasService {
     });
     y = this.pdfTable(
       doc,
-      ['Género', 'Tiempo Prom. Empleo', '% Coincidencia Positiva'],
+      ['Género', 'Tiempo Prom. Empleo (meses)', '% Coincidencia Positiva'],
       coincidenciaRows,
       [100, 160, 180], MARGIN_X, y, onNewPage,
     );
@@ -2934,7 +2934,7 @@ export class ExportEstadisticasService {
       ];
       const tiempoMap = new Map<string, number>();
       for (const t of data.tiempoEmpleoGenero || [])
-        tiempoMap.set(t.genero, +(t.tiempo_promedio_anios) || 0);
+        tiempoMap.set(t.genero, +(t.tiempo_promedio_meses) || 0);
 
       const coincRows = (data.coincidenciaLaboralGenero || []).map((r: any) => [
         r.genero, r.coincidencia || '—', r.total,
@@ -2943,7 +2943,7 @@ export class ExportEstadisticasService {
       ]);
       this.excelTable(
         ws,
-        ['Género', 'Coincidencia', 'Total', 'Porcentaje (%)', 'Años Prom. para Emplearse'],
+        ['Género', 'Coincidencia', 'Total', 'Porcentaje (%)', 'Meses Prom. para Emplearse'],
         coincRows, 4,
       );
     }

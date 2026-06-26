@@ -1487,25 +1487,28 @@ export class EgresadosService {
       ORDER BY g.genero, total DESC
     `, params);
 
-    // ── 8. Tiempo promedio en conseguir empleo por género ─────────────────
+    // ── 8. Tiempo promedio en conseguir el primer empleo por género (meses) ──
+    //     Lee el dato declarado (catálogo tiempo_primer_empleo), no la antigüedad
+    //     en el empleo actual. INNER JOIN excluye registros viejos (NULL) y se
+    //     descarta a quien nunca se empleó ('Aún no he conseguido empleo').
     const tiempoEmpleoGenero = await this.dataSource.query(`
       SELECT
         ${this.generoCase}                                                    AS genero,
         ROUND(AVG(
-          CASE ae.rango
-            WHEN 'Menos de 1 año' THEN 0.5
-            WHEN 'De 1 a 3 años'  THEN 2
-            WHEN 'Más de 3 años'  THEN 4
-            ELSE 0
+          CASE tpe.rango
+            WHEN 'Menos de 3 meses'   THEN 1.5
+            WHEN 'De 3 a 6 meses'     THEN 4.5
+            WHEN 'De 6 meses a 1 año' THEN 9
+            WHEN 'De 1 a 2 años'      THEN 18
+            WHEN 'Más de 2 años'      THEN 30
           END
-        ), 1)                                                                 AS tiempo_promedio_anios
+        ), 1)                                                                 AS tiempo_promedio_meses
       FROM egresados e
-      LEFT JOIN generos          g  ON e.genero_id            = g.id_genero
-      LEFT JOIN antiguedad_empleo ae ON e.antiguedad_empleo_id = ae.id_antiguedad
-      LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
-      LEFT JOIN carreras         c  ON e.carrera_id           = c.id_carrera
+      LEFT JOIN generos          g   ON e.genero_id              = g.id_genero
+      JOIN tiempo_primer_empleo  tpe ON e.tiempo_primer_empleo_id = tpe.id_tiempo
+      LEFT JOIN carreras         c   ON e.carrera_id             = c.id_carrera
       ${where}
-      AND sl.situacion != 'Desempleado'
+      AND tpe.rango <> 'Aún no he conseguido empleo'
       GROUP BY g.genero
     `, params);
 
