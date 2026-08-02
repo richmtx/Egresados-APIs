@@ -1,3 +1,15 @@
+/**
+ * ╔════════════════════════════════════════════════════════════════╗
+ * ║  Sistema de Seguimiento de Egresados · ITD                     ║
+ * ║  API REST — NestJS · TypeORM · MySQL                           ║
+ * ║                                                                ║
+ * ║  @author   Ricardo Martínez Hernández (richmtx)                ║
+ * ║  @contact  rich.mtx1205@gmail.com                              ║
+ * ║  @repo     https://github.com/richmtx/Egresados-APIs           ║
+ * ║  @year     2026                                                ║
+ * ╚════════════════════════════════════════════════════════════════╝
+ */
+
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
