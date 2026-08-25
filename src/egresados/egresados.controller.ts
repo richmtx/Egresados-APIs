@@ -5,11 +5,10 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-// import { diskStorage } from 'multer';  // ← descomentar al migrar al servidor ITD
-import { memoryStorage } from 'multer';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
 import { EgresadosService } from './egresados.service';
 import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
@@ -21,35 +20,21 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Public } from '../auth/public.decorator';
 
-/*
-// ── Configuración para servidor ITD (disco persistente) ──────────────────────
+const FOTOS_DIR = join(process.cwd(), 'uploads', 'fotos');
+
 const multerFotoOptions = {
   storage: diskStorage({
     destination: (_req, _file, cb) => cb(null, FOTOS_DIR),
     filename: (_req, file, cb) => {
-      const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-      cb(null, `${unique}${extname(file.originalname)}`);
+      const unico = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      const ext = extname(file.originalname).toLowerCase() || '.jpg';
+      cb(null, `${unico}${ext}`);
     },
   }),
   limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new BadRequestException('Solo se permiten imágenes JPG, PNG o WEBP.'), false);
-    }
-  },
-};
-*/
-
-// ── Configuración para Railway (memoria → Base64 en BD) ───────────────────────
-const multerFotoOptions = {
-  storage: memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 },
-  fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-    allowed.includes(file.mimetype)
+    const permitidos = ['image/jpeg', 'image/png', 'image/webp'];
+    permitidos.includes(file.mimetype)
       ? cb(null, true)
       : cb(new BadRequestException('Solo se permiten imágenes JPG, PNG o WEBP.'), false);
   },
@@ -93,13 +78,7 @@ export class EgresadosController {
       if (errores.length > 0) throw new BadRequestException(errores);
     }
 
-    // ── Railway: guarda Base64 en BD ──────────────────────────────────────────
-    const fotoUrl = foto?.buffer
-      ? `data:${foto.mimetype};base64,${foto.buffer.toString('base64')}`
-      : null;
-
-    // ── ITD: descomentar esta línea y comentar la de arriba ───────────────────
-    // const fotoUrl = foto ? `uploads/fotos/${foto.filename}` : null;
+    const fotoUrl = foto ? `uploads/fotos/${foto.filename}` : null;
 
     return this.egresadosService.crearEtapa1(dto, fotoUrl);
   }

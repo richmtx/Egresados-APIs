@@ -15,6 +15,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
+import { mkdirSync } from 'fs';
 import * as express from 'express';
 
 async function bootstrap() {
@@ -23,7 +24,9 @@ async function bootstrap() {
 
   // ── Forzar UTF-8 en todas las respuestas JSON ──
   app.use((req: any, res: any, next: any) => {
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    if (!req.path.startsWith('/uploads')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    }
     next();
   });
 
@@ -41,6 +44,7 @@ async function bootstrap() {
     }),
   );
 
+  mkdirSync(join(process.cwd(), 'uploads', 'fotos'), { recursive: true });
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
   const port = process.env.PORT ?? 3000;
