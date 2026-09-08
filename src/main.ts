@@ -3,7 +3,7 @@
  * ║  Sistema de Seguimiento de Egresados · ITD                     ║
  * ║  API REST — NestJS · TypeORM · MySQL                           ║
  * ║                                                                ║
- * ║  @author   Ricardo Martínez Hernández (richmtx)                ║
+ * ║  @author   Ricardo Alberto Martínez Hernández                  ║
  * ║  @contact  rich.mtx1205@gmail.com                              ║
  * ║  @repo     https://github.com/richmtx/Egresados-APIs           ║
  * ║  @year     2026                                                ║

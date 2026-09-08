@@ -2,7 +2,7 @@
   "name": "egresados-apis",
   "version": "0.0.1",
   "description": "API REST del Sistema de Seguimiento de Egresados del ITD — NestJS, TypeORM y MySQL.",
-  "author": "Ricardo Martínez Hernández <rich.mtx1205@gmail.com> (https://github.com/richmtx)",
+  "author": "Ricardo Alberto Martínez Hernández <rich.mtx1205@gmail.com> (https://github.com/richmtx)",
   "private": true,
   "license": "UNLICENSED",
   "repository": {
