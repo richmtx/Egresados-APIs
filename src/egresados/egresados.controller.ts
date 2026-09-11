@@ -116,6 +116,7 @@ export class EgresadosController {
     return this.egresadosService.findAllConDetalles();
   }
 
+  @Roles('admin')
   @Get('estadisticas/export/pdf')
   async exportEstadisticasPdf(
     @Query('carrera') carrera?: string,
@@ -135,6 +136,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('estadisticas/export/excel')
   async exportEstadisticasExcel(
     @Query('carrera') carrera?: string,
@@ -154,6 +156,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('estadisticas/genero/export/pdf')
   async exportGenerosPdf(
     @Query('carrera') carrera?: string,
@@ -166,6 +169,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('estadisticas/genero/export/excel')
   async exportGenerosExcel(
     @Query('carrera') carrera?: string,
@@ -178,6 +182,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('empleabilidad/export/pdf')
   async exportEmpleabilidadPdf(
     @Query('carrera') carrera?: string,
@@ -194,6 +199,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('empleabilidad/export/excel')
   async exportEmpleabilidadExcel(
     @Query('carrera') carrera?: string,
@@ -210,6 +216,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('titulacion/export/pdf')
   async exportTitulacionPdf(
     @Query('carrera') carrera?: string,
@@ -222,6 +229,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('titulacion/export/excel')
   async exportTitulacionExcel(
     @Query('carrera') carrera?: string,
@@ -234,6 +242,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('vinculacion/export/pdf')
   async exportVinculacionPdf(
     @Query('carrera') carrera?: string,
@@ -246,6 +255,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('vinculacion/export/excel')
   async exportVinculacionExcel(
     @Query('carrera') carrera?: string,
@@ -258,6 +268,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('vinculacion/panel/export/pdf')
   async exportVinculacionPanelPdf(
     @Query('seccion') seccion: 'colab' | 'hab' | 'auth',
@@ -279,6 +290,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('vinculacion/panel/export/excel')
   async exportVinculacionPanelExcel(
     @Query('seccion') seccion: 'colab' | 'hab' | 'auth',
@@ -300,6 +312,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('comparativas/export/pdf')
   async exportComparativasPdf(
     @Query('carreras') carrerasParam: string,
@@ -312,6 +325,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('comparativas/export/excel')
   async exportComparativasExcel(
     @Query('carreras') carrerasParam: string,
@@ -324,6 +338,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('distribucion-geografica/export/pdf')
   async exportGeografiaPdf(
     @Query('carrera') carrera?: string,
@@ -336,6 +351,7 @@ export class EgresadosController {
     res.end(buffer);
   }
 
+  @Roles('admin')
   @Get('distribucion-geografica/export/excel')
   async exportGeografiaExcel(
     @Query('carrera') carrera?: string,

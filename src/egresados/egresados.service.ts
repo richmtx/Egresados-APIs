@@ -1143,11 +1143,19 @@ export class EgresadosService {
     carrera?: string,
     anio?: number,
   ): Promise<any[]> {
-    const columna = {
+    const columnasPorTipo = {
       estadisticas: 'aut.autorizo_estadisticas',
       contacto: 'aut.autorizo_contacto',
       eventos: 'aut.autorizo_eventos',
-    }[tipo];
+    };
+
+    if (!Object.prototype.hasOwnProperty.call(columnasPorTipo, tipo)) {
+      throw new BadRequestException(
+        `El parámetro "tipo" debe ser uno de: estadisticas, contacto, eventos.`,
+      );
+    }
+
+    const columna = columnasPorTipo[tipo];
 
     const params: any[] = [];
     const conditions: string[] = [`${columna} = 1`];
@@ -1344,7 +1352,6 @@ export class EgresadosService {
     CASE g.genero
       WHEN 'masculino'       THEN 'Hombre'
       WHEN 'femenino'        THEN 'Mujer'
-      WHEN 'prefiero no decir' THEN 'Prefiero no decir'
       ELSE g.genero
     END
   `;

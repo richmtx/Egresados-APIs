@@ -34,8 +34,8 @@ export class Egresado {
   @Column({ type: 'varchar', length: 150 })
   empresa: string;
 
-  @Column()
-  antiguedad_empleo_id: number;
+  @Column({ type: 'int', nullable: true })
+  antiguedad_empleo_id: number | null;
 
   // ── NUEVO: primer empleo ──────────────────────────────────────────────
   @Column({ type: 'int', nullable: true })
