@@ -5,6 +5,10 @@ export class ExportEgresadosDto {
 
   @IsOptional()
   @IsString()
+  busqueda?: string;
+
+  @IsOptional()
+  @IsString()
   nombre?: string;
 
   @IsOptional()
@@ -17,15 +21,20 @@ export class ExportEgresadosDto {
 
   @IsOptional()
   @IsNumberString()
-  anio?: string;   
+  anio?: string;
 
   @IsOptional()
   @IsString()
   situacion_laboral?: string;
 
   @IsOptional()
-  @IsIn(['Titulado', 'En trámite', 'No titulado'])
-  estatus_titulacion?: string;
+  @Transform(({ value }) =>
+    typeof value === 'string'
+      ? value.split(',').map((v) => v.trim()).filter(Boolean)
+      : value,
+  )
+  @IsIn(['Titulado', 'En trámite', 'No titulado'], { each: true })
+  estatus_titulacion?: string[];
 
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === '1')

@@ -19,6 +19,16 @@ export class ExportService {
         const params: any[] = [];
         const conditions: string[] = ['1=1'];
 
+        if (filtros.busqueda) {
+            conditions.push(`(
+                e.nombre_completo LIKE ?
+                OR c.nombre_carrera LIKE ?
+                OR e.empresa LIKE ?
+                OR e.numero_control LIKE ?
+            )`);
+            const term = `%${filtros.busqueda}%`;
+            params.push(term, term, term, term);
+        }
         if (filtros.nombre) {
             conditions.push(`e.nombre_completo LIKE ?`);
             params.push(`%${filtros.nombre}%`);
@@ -39,9 +49,10 @@ export class ExportService {
             conditions.push(`sl.situacion = ?`);
             params.push(filtros.situacion_laboral);
         }
-        if (filtros.estatus_titulacion) {
-            conditions.push(`e.estatus_titulacion = ?`);
-            params.push(filtros.estatus_titulacion);
+        if (filtros.estatus_titulacion?.length) {
+            const placeholders = filtros.estatus_titulacion.map(() => '?').join(', ');
+            conditions.push(`e.estatus_titulacion IN (${placeholders})`);
+            params.push(...filtros.estatus_titulacion);
         }
         if (filtros.autorizo_contacto !== undefined) {
             conditions.push(`aut.autorizo_contacto = ?`);
@@ -130,7 +141,7 @@ export class ExportService {
             doc.on('end', () => resolve(Buffer.concat(chunks)));
             doc.on('error', reject);
 
-            const VINO = '#6b1232';  
+            const VINO = '#6b1232';
             const GRIS = '#6B7280';
             const NEGRO = '#1F2937';
             const W = 791;
@@ -561,7 +572,7 @@ export class ExportService {
             // ── Contenido ────────────────────────────────────────────────────────────
             let y = BANDA + 16;
 
-            const LIMITE_Y = 760; 
+            const LIMITE_Y = 760;
 
             const nuevaPaginaSiHaceFalta = (alto: number) => {
                 if (y + alto > LIMITE_Y) {
@@ -570,12 +581,12 @@ export class ExportService {
                         layout: 'portrait',
                         margins: { top: 40, bottom: 40, left: 40, right: 40 },
                     });
-                    y = 50; 
+                    y = 50;
                 }
             };
 
             const seccion = (titulo: string) => {
-                nuevaPaginaSiHaceFalta(46); 
+                nuevaPaginaSiHaceFalta(46);
                 doc.fontSize(7).fillColor(VINO).font('Helvetica-Bold')
                     .text(titulo.toUpperCase(), 40, y, { width: W, characterSpacing: 0.8 });
                 y += 13;
