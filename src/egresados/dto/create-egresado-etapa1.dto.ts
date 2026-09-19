@@ -1,6 +1,6 @@
 import {
   IsString, IsNumber, IsBoolean, IsEmail, IsNotEmpty,
-  IsOptional, ValidateNested, ValidateIf, Min, Max
+  IsOptional, ValidateNested, ValidateIf, Min, Max, IsIn
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
@@ -17,6 +17,17 @@ export class CreateEgresadoEtapa1Dto {
   @IsString() @IsNotEmpty() telefono: string;
   @IsString() @IsNotEmpty() ciudad_residencia: string;
   @IsString() @IsNotEmpty() carrera: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1980)
+  @Max(2026)
+  anio_ingreso?: number;
+
+  @IsOptional()
+  @IsIn(['Enero - Junio', 'Agosto - Diciembre', 'No lo recuerdo'])
+  periodo_ingreso?: string;
+  
   @IsNumber() @Min(1990) @Max(2026) anio_egreso: number;
   @IsString() @IsNotEmpty() estatus_titulacion: string;
   @IsString() @IsNotEmpty() certificacion_vigente: string;

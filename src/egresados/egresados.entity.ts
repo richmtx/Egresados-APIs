@@ -25,6 +25,12 @@ export class Egresado {
   @Column()
   carrera_id: number;
 
+  @Column({ type: 'year', nullable: true })
+  anio_ingreso: number | null;
+
+  @Column({ type: 'enum', enum: ['Enero - Junio', 'Agosto - Diciembre', 'No lo recuerdo'], nullable: true })
+  periodo_ingreso: string | null;
+
   @Column({ type: 'year' })
   anio_egreso: number;
 

@@ -220,19 +220,27 @@ export class EgresadosService {
     const facebook = dto.facebook?.trim() || '';
     const instagram = dto.instagram?.trim() || '';
 
+    // El ingreso no puede ser posterior al egreso
+    if (dto.anio_ingreso && dto.anio_ingreso > dto.anio_egreso) {
+      throw new BadRequestException(
+        'El año de ingreso no puede ser posterior al año de egreso.',
+      );
+    }
+
     // INSERT con red de seguridad por si dos registros entran al mismo tiempo
     let id_egresado: number;
     try {
       const result = await this.dataSource.query(
         `INSERT INTO egresados
       (nombre_completo, genero_id, correo, telefono, ciudad_residencia,
-       carrera_id, anio_egreso, estatus_titulacion, certificacion_vigente_id,
+       carrera_id, anio_ingreso, periodo_ingreso, anio_egreso,
+       estatus_titulacion, certificacion_vigente_id,
        nivel_ingles_id, situacion_laboral_id, empresa, antiguedad_empleo_id,
        tiempo_primer_empleo_id, medio_primer_empleo_id, medio_primer_empleo_otro,
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
        numero_control, linkedin, facebook, instagram, puesto_trabajo,
        coincidencia_laboral_id, foto_url, registro_completo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
         [
           dto.nombre_completo,
           genero_id,
@@ -240,6 +248,8 @@ export class EgresadosService {
           dto.telefono,
           dto.ciudad_residencia,
           carrera_id,
+          dto.anio_ingreso ?? null,
+          dto.periodo_ingreso ?? null,
           dto.anio_egreso,
           dto.estatus_titulacion,
           certificacion_vigente_id,
@@ -487,7 +497,8 @@ export class EgresadosService {
     const rows = await this.dataSource.query(`
     SELECT
       e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-      e.ciudad_residencia, e.anio_egreso, e.empresa, e.ciudad_trabajo,
+            e.ciudad_residencia, e.anio_ingreso, e.periodo_ingreso, e.anio_egreso,
+      e.empresa, e.ciudad_trabajo,
       e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
       e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
       e.facebook, e.instagram,
@@ -641,6 +652,28 @@ export class EgresadosService {
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       ${where}
       GROUP BY e.anio_egreso ORDER BY e.anio_egreso ASC
+    `, params);
+
+    // 4b. Titulación por cohorte de ingreso
+    const titulacionCohorte = await this.dataSource.query(`
+      SELECT e.anio_ingreso, COUNT(*) AS total,
+             SUM(e.estatus_titulacion = 'Titulado')   AS titulados,
+             SUM(e.estatus_titulacion = 'En trámite') AS en_tramite,
+             SUM(e.estatus_titulacion = 'No titulado') AS no_titulados,
+             ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1) AS pct_titulados
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where} AND e.anio_ingreso IS NOT NULL
+      GROUP BY e.anio_ingreso ORDER BY e.anio_ingreso ASC
+    `, params);
+
+    // 4c. Cobertura del dato de cohorte
+    const coberturaCohorte = await this.dataSource.query(`
+      SELECT COUNT(*) AS total,
+             SUM(e.anio_ingreso IS NOT NULL) AS con_cohorte
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
     `, params);
 
     // 5. Niveles de inglés
@@ -908,6 +941,8 @@ export class EgresadosService {
       situacionLaboral,
       empleabilidadCarrera,
       titulacionAnio,
+      titulacionCohorte,
+      coberturaCohorte: coberturaCohorte[0],
       nivelesIngles,
       inglesCarrera,
       satisfaccionCarrera,
