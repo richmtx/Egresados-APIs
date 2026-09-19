@@ -395,7 +395,8 @@ export class ExportService {
         const rows = await this.dataSource.query(`
             SELECT
                 e.nombre_completo, e.correo, e.telefono, e.ciudad_residencia,
-                e.anio_egreso, e.empresa, e.ciudad_trabajo, e.numero_control,
+                e.anio_ingreso, e.periodo_ingreso, e.anio_egreso,
+                e.empresa, e.ciudad_trabajo, e.numero_control,
                 e.linkedin, e.puesto_trabajo, e.estatus_titulacion,
                 e.satisfaccion_formacion, e.foto_url,
                 e.facebook, e.instagram,
@@ -631,6 +632,10 @@ export class ExportService {
             // ── DATOS ACADÉMICOS ─────────────────────────────────────────────────────
             seccion('Datos académicos');
             campoFull('Carrera', e.nombre_carrera || '—');
+            const generacion = e.anio_ingreso
+                ? `${e.periodo_ingreso && e.periodo_ingreso !== 'No lo recuerdo' ? e.periodo_ingreso + ' ' : ''}${e.anio_ingreso} - ${e.anio_egreso}`
+                : '—';
+            campoFull('Generación', generacion);
             filaDos('Nivel de inglés', e.nivel_ingles || '—', 'Titulación', e.estatus_titulacion || '—');
 
             // Satisfacción — reemplazamos unicode por texto seguro

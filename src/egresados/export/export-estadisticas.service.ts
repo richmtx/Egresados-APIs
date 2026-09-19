@@ -996,6 +996,26 @@ export class ExportEstadisticasService {
       [70, 70, 90, 100, 90, 80], MARGIN_X, y, onNewPage,
     );
 
+    // 4b) Titulación por Cohorte de Ingreso
+    if ((data.titulacionCohorte || []).length > 0) {
+      y = this.pdfSection(doc, 'Titulación por Cohorte de Ingreso', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Año ingreso', 'Total', 'Titulados', 'En Trámite', 'No Tit.', '% Tit.'],
+        (data.titulacionCohorte || [])
+          .sort((a: any, b: any) => Number(a.anio_ingreso) - Number(b.anio_ingreso))
+          .map((r: any) => [
+            String(r.anio_ingreso),
+            String(r.total),
+            String(r.titulados),
+            String(r.en_tramite),
+            String(r.no_titulados ?? 0),
+            `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+          ]),
+        [90, 70, 90, 100, 85, 75], MARGIN_X, y, onNewPage,
+      );
+    }
+
     // 5) Detalle por Carrera y Año de Egreso
     if ((data.titulacionCarreraAnio || []).length > 0) {
       y = this.pdfSection(doc, 'Detalle por Carrera y Año de Egreso', y, onNewPage);
@@ -1109,6 +1129,34 @@ export class ExportEstadisticasService {
           .sort((a: any, b: any) => Number(a.anio_egreso) - Number(b.anio_egreso))
           .map((r: any) => [
             r.anio_egreso,
+            r.total,
+            r.titulados,
+            r.en_tramite,
+            r.no_titulados ?? 0,
+            +(+(r.pct_titulados) || 0).toFixed(2),
+          ]),
+        4,
+      );
+    }
+
+    // 4b) Titulación por Cohorte de Ingreso
+    if ((data.titulacionCohorte || []).length > 0) {
+      const ws = addSheet('Cohorte de Ingreso', 6, 'Titulación por Cohorte de Ingreso');
+      ws.columns = [
+        { key: 'a', width: 14 },
+        { key: 't', width: 12 },
+        { key: 'tt', width: 14 },
+        { key: 'tr', width: 14 },
+        { key: 'nt', width: 16 },
+        { key: 'p', width: 16 },
+      ];
+      this.excelTable(
+        ws,
+        ['Año de ingreso', 'Total', 'Titulados', 'En Trámite', 'No Titulados', '% Titulados'],
+        [...(data.titulacionCohorte || [])]
+          .sort((a: any, b: any) => Number(a.anio_ingreso) - Number(b.anio_ingreso))
+          .map((r: any) => [
+            r.anio_ingreso,
             r.total,
             r.titulados,
             r.en_tramite,
