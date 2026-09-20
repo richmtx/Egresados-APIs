@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
 
@@ -8,6 +8,18 @@ import { Egresado } from './egresados.entity';
 import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
+
+interface IdentidadResuelta {
+  id_indigena: number;
+  id_habla_lengua: number;
+  lengua_indigena: string | null;
+  id_afromexicano: number;
+}
+
+interface DatosSensiblesResueltos {
+  discapacidad: { id_dominio: number; id_grado: number }[];
+  identidad: IdentidadResuelta | null;
+}
 
 @Injectable()
 export class EgresadosService {
@@ -21,15 +33,94 @@ export class EgresadosService {
 
   // Borra un egresado y TODOS sus registros hijos. Lo usan la limpieza de
   // registros incompletos (candado) y el remove de vinculación.
-  private async borrarEgresadoCompleto(id: number): Promise<void> {
-    await this.dataSource.query(`DELETE FROM autorizaciones          WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM certificaciones         WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM egresado_habilidades    WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM habilidades_otro        WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM egresado_colaboraciones WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM colaboracion_otro       WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM notificaciones          WHERE id_egresado = ?`, [id]);
-    await this.dataSource.query(`DELETE FROM egresados               WHERE id_egresado = ?`, [id]);
+  // `exec` permite correrlo dentro de una transacción (QueryRunner); por
+  // defecto usa el DataSource.
+  private async borrarEgresadoCompleto(
+    id: number,
+    exec: QueryRunner | DataSource = this.dataSource,
+  ): Promise<void> {
+    await exec.query(`DELETE FROM autorizaciones          WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM certificaciones         WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM egresado_habilidades    WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM habilidades_otro        WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM egresado_colaboraciones WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM colaboracion_otro       WHERE id_egresado = ?`, [id]);
+    // Datos sensibles de inclusión: se borran de forma explícita, sin depender
+    // solo del ON DELETE CASCADE, para que nunca sobrevivan a su egresado.
+    await exec.query(`DELETE FROM egresado_discapacidad   WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM egresado_identidad      WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM notificaciones          WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM egresados               WHERE id_egresado = ?`, [id]);
+  }
+
+  // Resuelve las claves de discapacidad/identidad a ids de catálogo.
+  //
+  // PUERTA DE CONSENTIMIENTO: si el egresado no consintió de forma explícita
+  // (=== true), devuelve null y los datos sensibles del DTO se ignoran por
+  // completo (ni se validan ni se guardan). Solo lee catálogos; no escribe.
+  private async resolverDatosSensibles(
+    dto: CreateEgresadoEtapa1Dto,
+  ): Promise<DatosSensiblesResueltos | null> {
+    if (dto.consintio_datos_sensibles !== true) return null;
+
+    const mapaClaves = async (tabla: string, colId: string): Promise<Map<string, number>> => {
+      const rows = await this.dataSource.query(`SELECT ${colId}, clave FROM ${tabla}`);
+      return new Map(rows.map((r: any) => [r.clave, r[colId]]));
+    };
+
+    const discapacidad: { id_dominio: number; id_grado: number }[] = [];
+    if (dto.discapacidad?.length) {
+      const dominios = await mapaClaves('discapacidad_dominios', 'id_dominio');
+      const grados = await mapaClaves('grados_dificultad', 'id_grado');
+      const vistos = new Set<string>();
+
+      for (const item of dto.discapacidad) {
+        const id_dominio = dominios.get(item.dominio);
+        if (id_dominio === undefined) {
+          throw new BadRequestException(
+            `Dominio de discapacidad no válido: "${item.dominio}".`,
+          );
+        }
+        const id_grado = grados.get(item.grado);
+        if (id_grado === undefined) {
+          throw new BadRequestException(
+            `Grado de dificultad no válido: "${item.grado}".`,
+          );
+        }
+        if (vistos.has(item.dominio)) {
+          throw new BadRequestException(
+            `El dominio de discapacidad "${item.dominio}" viene repetido.`,
+          );
+        }
+        vistos.add(item.dominio);
+        discapacidad.push({ id_dominio, id_grado });
+      }
+    }
+
+    let identidad: IdentidadResuelta | null = null;
+    if (dto.identidad) {
+      const respuestas = await mapaClaves('respuestas_autoadscripcion', 'id_respuesta');
+      const resolver = (campo: string, clave: string): number => {
+        const id = respuestas.get(clave);
+        if (id === undefined) {
+          throw new BadRequestException(
+            `Respuesta de autoadscripción no válida en "${campo}": "${clave}".`,
+          );
+        }
+        return id;
+      };
+
+      const habla = dto.identidad.habla_lengua;
+      identidad = {
+        id_indigena: resolver('indigena', dto.identidad.indigena),
+        id_habla_lengua: resolver('habla_lengua', habla),
+        // La lengua solo se conserva si respondió 'si' a hablar una lengua
+        lengua_indigena: habla === 'si' ? (dto.identidad.lengua_indigena?.trim() || null) : null,
+        id_afromexicano: resolver('afromexicano', dto.identidad.afromexicano),
+      };
+    }
+
+    return { discapacidad, identidad };
   }
 
   private async resolveId(
@@ -188,8 +279,9 @@ export class EgresadosService {
           'Ya tenemos registradas tus respuestas. Si necesitas corregir algún dato, comunícate con vinculación.',
         );
       }
-      // Registro a medias del mismo correo → lo limpiamos para empezar de cero
-      await this.borrarEgresadoCompleto(existente[0].id_egresado);
+      // Registro a medias del mismo correo → se limpia para empezar de cero,
+      // pero DENTRO de la transacción de más abajo (si el nuevo insert falla,
+      // el borrado se revierte y no se pierde el registro previo).
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -227,12 +319,28 @@ export class EgresadosService {
       );
     }
 
+    // Datos sensibles: null si no hubo consentimiento explícito (se ignoran).
+    // Se resuelve ANTES de abrir la transacción: una clave inválida lanza
+    // BadRequestException sin haber escrito nada.
+    const sensibles = await this.resolverDatosSensibles(dto);
+
+    // Una sola transacción: egresado + autorizaciones + datos sensibles.
+    // Si algo falla a medias, todo se revierte.
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
     // INSERT con red de seguridad por si dos registros entran al mismo tiempo
     let id_egresado: number;
     try {
-      const result = await this.dataSource.query(
+      if (existente.length > 0) {
+        await this.borrarEgresadoCompleto(existente[0].id_egresado, qr);
+      }
+
+      const result = await qr.query(
         `INSERT INTO egresados
       (nombre_completo, genero_id, correo, telefono, ciudad_residencia,
+       pais_nacimiento,
        carrera_id, anio_ingreso, periodo_ingreso, anio_egreso,
        estatus_titulacion, certificacion_vigente_id,
        nivel_ingles_id, situacion_laboral_id, empresa, antiguedad_empleo_id,
@@ -240,13 +348,14 @@ export class EgresadosService {
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
        numero_control, linkedin, facebook, instagram, puesto_trabajo,
        coincidencia_laboral_id, foto_url, registro_completo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
         [
           dto.nombre_completo,
           genero_id,
           correo,
           dto.telefono,
           dto.ciudad_residencia,
+          dto.pais_nacimiento ?? null,
           carrera_id,
           dto.anio_ingreso ?? null,
           dto.periodo_ingreso ?? null,
@@ -268,7 +377,55 @@ export class EgresadosService {
         ],
       );
       id_egresado = result.insertId;
+
+      await qr.query(
+        `INSERT INTO autorizaciones
+      (id_egresado, autorizo_estadisticas, autorizo_contacto, autorizo_eventos)
+     VALUES (?, ?, ?, ?)`,
+        [
+          id_egresado,
+          dto.autorizaciones.estadisticas ? 1 : 0,
+          dto.autorizaciones.contacto ? 1 : 0,
+          dto.autorizaciones.eventos ? 1 : 0,
+        ],
+      );
+
+      // ── Datos sensibles (solo con consentimiento explícito) ───────────────
+      // Sin consentimiento: no se toca nada; las columnas de consentimiento
+      // conservan su default (0 / NULL) y no se crea NINGUNA fila en
+      // egresado_discapacidad ni egresado_identidad.
+      if (sensibles) {
+        await qr.query(
+          `UPDATE egresados
+              SET consintio_datos_sensibles = 1,
+                  fecha_consentimiento_sensibles = NOW()
+            WHERE id_egresado = ?`,
+          [id_egresado],
+        );
+
+        for (const d of sensibles.discapacidad) {
+          await qr.query(
+            `INSERT INTO egresado_discapacidad (id_egresado, id_dominio, id_grado)
+             VALUES (?, ?, ?)`,
+            [id_egresado, d.id_dominio, d.id_grado],
+          );
+        }
+
+        if (sensibles.identidad) {
+          const i = sensibles.identidad;
+          await qr.query(
+            `INSERT INTO egresado_identidad
+               (id_egresado, id_indigena, id_habla_lengua, lengua_indigena, id_afromexicano)
+             VALUES (?, ?, ?, ?, ?)`,
+            [id_egresado, i.id_indigena, i.id_habla_lengua, i.lengua_indigena, i.id_afromexicano],
+          );
+        }
+      }
+
+      await qr.commitTransaction();
     } catch (error: any) {
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
+
       const esDuplicado =
         error?.code === 'ER_DUP_ENTRY' ||
         error?.errno === 1062 ||
@@ -280,19 +437,12 @@ export class EgresadosService {
         );
       }
       throw error;
+    } finally {
+      await qr.release();
     }
 
-    await this.dataSource.query(
-      `INSERT INTO autorizaciones
-      (id_egresado, autorizo_estadisticas, autorizo_contacto, autorizo_eventos)
-     VALUES (?, ?, ?, ?)`,
-      [
-        id_egresado,
-        dto.autorizaciones.estadisticas ? 1 : 0,
-        dto.autorizaciones.contacto ? 1 : 0,
-        dto.autorizaciones.eventos ? 1 : 0,
-      ],
-    );
+    // Las notificaciones van DESPUÉS del commit: usan otra conexión y
+    // dependen de que el egresado ya exista. No contienen datos sensibles.
 
     if (dto.autorizaciones.contacto) {
       await this.notificacionesService.crear({
@@ -497,7 +647,8 @@ export class EgresadosService {
     const rows = await this.dataSource.query(`
     SELECT
       e.id_egresado, e.nombre_completo, e.correo, e.telefono,
-            e.ciudad_residencia, e.anio_ingreso, e.periodo_ingreso, e.anio_egreso,
+            e.ciudad_residencia, e.pais_nacimiento,
+      e.anio_ingreso, e.periodo_ingreso, e.anio_egreso,
       e.empresa, e.ciudad_trabajo,
       e.fecha_registro, e.numero_control, e.linkedin, e.puesto_trabajo,
       e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,

@@ -395,6 +395,7 @@ export class ExportService {
         const rows = await this.dataSource.query(`
             SELECT
                 e.nombre_completo, e.correo, e.telefono, e.ciudad_residencia,
+                e.pais_nacimiento,
                 e.anio_ingreso, e.periodo_ingreso, e.anio_egreso,
                 e.empresa, e.ciudad_trabajo, e.numero_control,
                 e.linkedin, e.puesto_trabajo, e.estatus_titulacion,
@@ -624,6 +625,7 @@ export class ExportService {
             filaDos('No. de control', e.numero_control || '—', 'Año de egreso', String(e.anio_egreso));
             campoFull('Correo electrónico', e.correo || '—');
             filaDos('Teléfono', e.telefono || '—', 'Ciudad de residencia', e.ciudad_residencia || '—');
+            campoFull('País de nacimiento', e.pais_nacimiento || '—');
             if (e.linkedin) campoFull('LinkedIn', e.linkedin);
             if (e.facebook) campoFull('Facebook', e.facebook);
             if (e.instagram) campoFull('Instagram', e.instagram);

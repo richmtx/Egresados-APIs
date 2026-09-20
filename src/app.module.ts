@@ -30,6 +30,10 @@ import { AuthModule } from './auth/auth.module';
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { MailModule } from './mail/mail.module';
+import { DiscapacidadDominiosModule } from './discapacidad-dominios/discapacidad-dominios.module';
+import { GradosDificultadModule } from './grados-dificultad/grados-dificultad.module';
+import { RespuestasAutoadscripcionModule } from './respuestas-autoadscripcion/respuestas-autoadscripcion.module';
+import { InclusionModule } from './inclusion/inclusion.module';
 
 @Module({
   imports: [
@@ -67,11 +71,15 @@ import { MailModule } from './mail/mail.module';
     FormacionModule,
     SituacionModule,
     TitulacionModule,
+    DiscapacidadDominiosModule,
+    GradosDificultadModule,
+    RespuestasAutoadscripcionModule,
     AuthModule,
     UsuariosModule,
     NotificacionesModule,
     DashboardModule,
     MailModule,
+    InclusionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

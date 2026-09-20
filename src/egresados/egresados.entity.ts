@@ -22,6 +22,9 @@ export class Egresado {
   @Column({ type: 'varchar', length: 120 })
   ciudad_residencia: string;
 
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  pais_nacimiento: string | null;
+
   @Column()
   carrera_id: number;
 
