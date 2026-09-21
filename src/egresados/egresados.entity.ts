@@ -55,6 +55,12 @@ export class Egresado {
 
   @Column({ type: 'varchar', length: 150, nullable: true })
   medio_primer_empleo_otro: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  primer_empleo_empresa: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  primer_empleo_puesto: string | null;
   // ──────────────────────────────────────────────────────────────────────
 
   @Column({ type: 'varchar', length: 120 })

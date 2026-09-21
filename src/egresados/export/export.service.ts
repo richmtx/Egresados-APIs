@@ -402,6 +402,7 @@ export class ExportService {
                 e.satisfaccion_formacion, e.foto_url,
                 e.facebook, e.instagram,
                 e.medio_primer_empleo_otro,
+                e.primer_empleo_empresa, e.primer_empleo_puesto,
                 g.genero,
                 c.nombre_carrera,
                 ni.nivel        AS nivel_ingles,
@@ -456,6 +457,32 @@ export class ExportService {
         const colaboracionesOtro = await this.dataSource.query(
             `SELECT descripcion FROM colaboracion_otro WHERE id_egresado = ?`, [id],
         );
+
+        // Trayectoria profesional (solo perfil individual)
+        const estudios = await this.dataSource.query(`
+            SELECT ne.descripcion AS nivel, es.nombre_programa, es.institucion,
+                   ee.descripcion AS estado, es.anio
+            FROM egresado_estudios es
+            JOIN niveles_estudio ne ON es.id_nivel_estudio  = ne.id_nivel_estudio
+            JOIN estados_estudio ee ON es.id_estado_estudio = ee.id_estado_estudio
+            WHERE es.id_egresado = ?
+            ORDER BY es.id_estudio
+        `, [id]);
+        const emprendimientos = await this.dataSource.query(`
+            SELECT em.nombre, em.giro, em.anio_inicio, em.sigue_operando,
+                   re.descripcion AS rango_empleados
+            FROM egresado_emprendimientos em
+            LEFT JOIN rangos_empleados re ON em.id_rango_empleados = re.id_rango_empleados
+            WHERE em.id_egresado = ?
+            ORDER BY em.id_emprendimiento
+        `, [id]);
+        const proyectosSociales = await this.dataSource.query(`
+            SELECT ps.nombre, tp.descripcion AS tipo, ps.anio, ps.organizacion
+            FROM egresado_proyectos_sociales ps
+            JOIN tipos_proyecto_social tp ON ps.id_tipo_proyecto = tp.id_tipo_proyecto
+            WHERE ps.id_egresado = ?
+            ORDER BY ps.id_proyecto
+        `, [id]);
 
         const todasHabilidades: string[] = [
             ...habilidades.map((h: any) => h.habilidad),
@@ -669,12 +696,70 @@ export class ExportService {
             }
             y += 4;
 
+            // ── TRAYECTORIA PROFESIONAL (solo si hay datos) ──────────────────────────
+            // Cada elemento: linea de titulo en negritas + linea de detalle en gris.
+            // Solo texto ASCII/latin basico y guiones normales (Helvetica de PDFKit).
+            const elemento = (titulo: string, detalle: string) => {
+                doc.fontSize(8.5).font('Helvetica-Bold');
+                const altoTitulo = doc.heightOfString(titulo, { width: W - 4 });
+                doc.fontSize(8).font('Helvetica');
+                const altoDetalle = doc.heightOfString(detalle, { width: W - 4 });
+                nuevaPaginaSiHaceFalta(altoTitulo + altoDetalle + 8);
+                doc.fontSize(8.5).fillColor(NEGRO).font('Helvetica-Bold')
+                    .text(titulo, 44, y, { width: W - 4 });
+                y += altoTitulo + 1;
+                doc.fontSize(8).fillColor(GRIS).font('Helvetica')
+                    .text(detalle, 44, y, { width: W - 4 });
+                y += altoDetalle + 7;
+            };
+            const unir = (partes: (string | number | null | undefined)[]) =>
+                partes.filter(p => p !== null && p !== undefined && p !== '').join(' - ');
+
+            if (estudios.length > 0) {
+                seccion('Estudios posteriores');
+                estudios.forEach((s: any) => {
+                    elemento(
+                        `${s.nivel}: ${s.nombre_programa}`,
+                        unir([s.institucion, s.estado, s.anio]),
+                    );
+                });
+                y += 4;
+            }
+
+            if (emprendimientos.length > 0) {
+                seccion('Emprendimientos');
+                emprendimientos.forEach((em: any) => {
+                    elemento(
+                        em.nombre,
+                        unir([
+                            `Giro: ${em.giro}`,
+                            em.anio_inicio ? `Inicio: ${em.anio_inicio}` : null,
+                            em.sigue_operando ? 'En operacion' : 'Ya no opera',
+                            em.rango_empleados ? `Empleados: ${em.rango_empleados}` : null,
+                        ]),
+                    );
+                });
+                y += 4;
+            }
+
+            if (proyectosSociales.length > 0) {
+                seccion('Proyectos sociales');
+                proyectosSociales.forEach((p: any) => {
+                    elemento(
+                        p.nombre,
+                        unir([p.tipo, p.anio, p.organizacion]),
+                    );
+                });
+                y += 4;
+            }
+
             // ── SITUACIÓN LABORAL ────────────────────────────────────────────────────
             seccion('Situación laboral');
             campoFull('Empresa', e.empresa || '—');
             campoFull('Puesto', e.puesto_trabajo || '—');
             filaDos('Ciudad de trabajo', e.ciudad_trabajo || '—', 'Antigüedad', e.antiguedad_empleo || '—');
             campoFull('Coincidencia con carrera', e.coincidencia_laboral || '—');
+            filaDos('Empresa del primer empleo', e.primer_empleo_empresa || '—', 'Puesto del primer empleo', e.primer_empleo_puesto || '—');
             campoFull('Tiempo en conseguir el primer empleo', e.tiempo_primer_empleo || '—');
             campoFull('Medio para obtener el primer empleo', medioPrimerEmpleo || '—');
             y += 4;

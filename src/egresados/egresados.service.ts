@@ -21,6 +21,21 @@ interface DatosSensiblesResueltos {
   identidad: IdentidadResuelta | null;
 }
 
+interface TrayectoriaResuelta {
+  estudios: {
+    id_nivel_estudio: number; nombre_programa: string; institucion: string;
+    id_estado_estudio: number; anio: number | null;
+  }[];
+  emprendimientos: {
+    nombre: string; giro: string; anio_inicio: number | null;
+    sigue_operando: number; id_rango_empleados: number | null;
+  }[];
+  proyectos_sociales: {
+    nombre: string; id_tipo_proyecto: number; anio: number | null;
+    organizacion: string | null;
+  }[];
+}
+
 @Injectable()
 export class EgresadosService {
 
@@ -49,6 +64,10 @@ export class EgresadosService {
     // solo del ON DELETE CASCADE, para que nunca sobrevivan a su egresado.
     await exec.query(`DELETE FROM egresado_discapacidad   WHERE id_egresado = ?`, [id]);
     await exec.query(`DELETE FROM egresado_identidad      WHERE id_egresado = ?`, [id]);
+    // Trayectoria profesional: también explícito, sin depender solo del CASCADE.
+    await exec.query(`DELETE FROM egresado_estudios           WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM egresado_emprendimientos    WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM egresado_proyectos_sociales WHERE id_egresado = ?`, [id]);
     await exec.query(`DELETE FROM notificaciones          WHERE id_egresado = ?`, [id]);
     await exec.query(`DELETE FROM egresados               WHERE id_egresado = ?`, [id]);
   }
@@ -121,6 +140,80 @@ export class EgresadosService {
     }
 
     return { discapacidad, identidad };
+  }
+
+  // Resuelve las claves de estudios / emprendimientos / proyectos sociales a
+  // ids de catálogo. Son datos profesionales normales: no hay puerta de
+  // consentimiento. Solo lee catálogos; no escribe. Devuelve null si no viene
+  // ningún elemento en los tres arreglos.
+  private async resolverTrayectoria(
+    dto: CreateEgresadoEtapa1Dto,
+  ): Promise<TrayectoriaResuelta | null> {
+    if (!dto.estudios?.length && !dto.emprendimientos?.length && !dto.proyectos_sociales?.length) {
+      return null;
+    }
+
+    const mapaClaves = async (tabla: string, colId: string): Promise<Map<string, number>> => {
+      const rows = await this.dataSource.query(`SELECT ${colId}, clave FROM ${tabla}`);
+      return new Map(rows.map((r: any) => [r.clave, r[colId]]));
+    };
+
+    const resolver = (mapa: Map<string, number>, catalogo: string, clave: string): number => {
+      const id = mapa.get(clave);
+      if (id === undefined) {
+        throw new BadRequestException(
+          `La clave "${clave}" no existe en el catálogo ${catalogo}.`,
+        );
+      }
+      return id;
+    };
+
+    const estudios: TrayectoriaResuelta['estudios'] = [];
+    if (dto.estudios?.length) {
+      const niveles = await mapaClaves('niveles_estudio', 'id_nivel_estudio');
+      const estados = await mapaClaves('estados_estudio', 'id_estado_estudio');
+      for (const e of dto.estudios) {
+        estudios.push({
+          id_nivel_estudio: resolver(niveles, 'niveles_estudio', e.nivel),
+          nombre_programa: e.nombre_programa.trim(),
+          institucion: e.institucion.trim(),
+          id_estado_estudio: resolver(estados, 'estados_estudio', e.estado),
+          anio: e.anio ?? null,
+        });
+      }
+    }
+
+    const emprendimientos: TrayectoriaResuelta['emprendimientos'] = [];
+    if (dto.emprendimientos?.length) {
+      const rangos = await mapaClaves('rangos_empleados', 'id_rango_empleados');
+      for (const e of dto.emprendimientos) {
+        emprendimientos.push({
+          nombre: e.nombre.trim(),
+          giro: e.giro.trim(),
+          anio_inicio: e.anio_inicio ?? null,
+          // Por defecto sigue operando; solo un false explícito lo apaga
+          sigue_operando: e.sigue_operando === false ? 0 : 1,
+          id_rango_empleados: e.rango_empleados
+            ? resolver(rangos, 'rangos_empleados', e.rango_empleados)
+            : null,
+        });
+      }
+    }
+
+    const proyectos_sociales: TrayectoriaResuelta['proyectos_sociales'] = [];
+    if (dto.proyectos_sociales?.length) {
+      const tipos = await mapaClaves('tipos_proyecto_social', 'id_tipo_proyecto');
+      for (const p of dto.proyectos_sociales) {
+        proyectos_sociales.push({
+          nombre: p.nombre.trim(),
+          id_tipo_proyecto: resolver(tipos, 'tipos_proyecto_social', p.tipo),
+          anio: p.anio ?? null,
+          organizacion: p.organizacion?.trim() || null,
+        });
+      }
+    }
+
+    return { estudios, emprendimientos, proyectos_sociales };
   }
 
   private async resolveId(
@@ -308,6 +401,10 @@ export class EgresadosService {
       ? (dto.medio_primer_empleo_otro?.trim() || '')
       : '';
 
+    // Sin empleo no hay primer empleo → empresa y puesto quedan NULL aunque el DTO los traiga
+    const primerEmpleoEmpresa = sinEmpleo ? null : (dto.primer_empleo_empresa?.trim() || null);
+    const primerEmpleoPuesto = sinEmpleo ? null : (dto.primer_empleo_puesto?.trim() || null);
+
     // ── redes sociales (opcionales) ───────────────────────────────────────
     const facebook = dto.facebook?.trim() || '';
     const instagram = dto.instagram?.trim() || '';
@@ -323,6 +420,9 @@ export class EgresadosService {
     // Se resuelve ANTES de abrir la transacción: una clave inválida lanza
     // BadRequestException sin haber escrito nada.
     const sensibles = await this.resolverDatosSensibles(dto);
+
+    // Trayectoria profesional: misma idea, clave inválida → 400 sin escribir nada.
+    const trayectoria = await this.resolverTrayectoria(dto);
 
     // Una sola transacción: egresado + autorizaciones + datos sensibles.
     // Si algo falla a medias, todo se revierte.
@@ -345,10 +445,11 @@ export class EgresadosService {
        estatus_titulacion, certificacion_vigente_id,
        nivel_ingles_id, situacion_laboral_id, empresa, antiguedad_empleo_id,
        tiempo_primer_empleo_id, medio_primer_empleo_id, medio_primer_empleo_otro,
+       primer_empleo_empresa, primer_empleo_puesto,
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
        numero_control, linkedin, facebook, instagram, puesto_trabajo,
        coincidencia_laboral_id, foto_url, registro_completo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
         [
           dto.nombre_completo,
           genero_id,
@@ -369,6 +470,8 @@ export class EgresadosService {
           tiempo_primer_empleo_id,
           medio_primer_empleo_id,
           medioOtro,
+          primerEmpleoEmpresa,
+          primerEmpleoPuesto,
           dto.ciudad_trabajo || '',
           dto.satisfaccion_formacion,
           facebook,
@@ -418,6 +521,39 @@ export class EgresadosService {
                (id_egresado, id_indigena, id_habla_lengua, lengua_indigena, id_afromexicano)
              VALUES (?, ?, ?, ?, ?)`,
             [id_egresado, i.id_indigena, i.id_habla_lengua, i.lengua_indigena, i.id_afromexicano],
+          );
+        }
+      }
+
+      // ── Trayectoria profesional (datos normales, sin consentimiento) ──────
+      if (trayectoria) {
+        for (const e of trayectoria.estudios) {
+          await qr.query(
+            `INSERT INTO egresado_estudios
+               (id_egresado, id_nivel_estudio, nombre_programa, institucion,
+                id_estado_estudio, anio)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [id_egresado, e.id_nivel_estudio, e.nombre_programa, e.institucion,
+              e.id_estado_estudio, e.anio],
+          );
+        }
+
+        for (const e of trayectoria.emprendimientos) {
+          await qr.query(
+            `INSERT INTO egresado_emprendimientos
+               (id_egresado, nombre, giro, anio_inicio, sigue_operando, id_rango_empleados)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [id_egresado, e.nombre, e.giro, e.anio_inicio, e.sigue_operando,
+              e.id_rango_empleados],
+          );
+        }
+
+        for (const p of trayectoria.proyectos_sociales) {
+          await qr.query(
+            `INSERT INTO egresado_proyectos_sociales
+               (id_egresado, nombre, id_tipo_proyecto, anio, organizacion)
+             VALUES (?, ?, ?, ?, ?)`,
+            [id_egresado, p.nombre, p.id_tipo_proyecto, p.anio, p.organizacion],
           );
         }
       }
@@ -654,6 +790,7 @@ export class EgresadosService {
       e.estatus_titulacion, e.satisfaccion_formacion, e.foto_url,
       e.facebook, e.instagram,
       e.medio_primer_empleo_otro,
+      e.primer_empleo_empresa, e.primer_empleo_puesto,
       g.genero, c.nombre_carrera,
       ni.nivel        AS nivel_ingles,
       ae.rango        AS antiguedad_empleo,
@@ -708,6 +845,32 @@ export class EgresadosService {
       `SELECT descripcion FROM colaboracion_otro WHERE id_egresado = ?`, [id],
     );
 
+    // Trayectoria profesional: descripciones legibles, no ids
+    const estudios = await this.dataSource.query(`
+    SELECT ne.descripcion AS nivel, es.nombre_programa, es.institucion,
+           ee.descripcion AS estado, es.anio
+    FROM egresado_estudios es
+    JOIN niveles_estudio ne ON es.id_nivel_estudio  = ne.id_nivel_estudio
+    JOIN estados_estudio ee ON es.id_estado_estudio = ee.id_estado_estudio
+    WHERE es.id_egresado = ?
+    ORDER BY es.id_estudio
+  `, [id]);
+    const emprendimientos = await this.dataSource.query(`
+    SELECT em.nombre, em.giro, em.anio_inicio, em.sigue_operando,
+           re.descripcion AS rango_empleados
+    FROM egresado_emprendimientos em
+    LEFT JOIN rangos_empleados re ON em.id_rango_empleados = re.id_rango_empleados
+    WHERE em.id_egresado = ?
+    ORDER BY em.id_emprendimiento
+  `, [id]);
+    const proyectosSociales = await this.dataSource.query(`
+    SELECT ps.nombre, tp.descripcion AS tipo, ps.anio, ps.organizacion
+    FROM egresado_proyectos_sociales ps
+    JOIN tipos_proyecto_social tp ON ps.id_tipo_proyecto = tp.id_tipo_proyecto
+    WHERE ps.id_egresado = ?
+    ORDER BY ps.id_proyecto
+  `, [id]);
+
     return {
       ...egresado,
       medio_primer_empleo: medioFinal,
@@ -716,6 +879,12 @@ export class EgresadosService {
       habilidades_otro: habilidadesOtro.map((r: any) => r.descripcion),
       colaboraciones: colaboraciones.map((r: any) => r.descripcion),
       colaboraciones_otro: colaboracionesOtro.map((r: any) => r.descripcion),
+      estudios,
+      emprendimientos: emprendimientos.map((r: any) => ({
+        ...r,
+        sigue_operando: !!r.sigue_operando,
+      })),
+      proyectos_sociales: proyectosSociales,
     };
   }
 

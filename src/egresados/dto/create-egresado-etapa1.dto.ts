@@ -35,6 +35,45 @@ export class IdentidadDto {
   @IsString() @IsNotEmpty() @MaxLength(20) afromexicano: string;
 }
 
+// ── Trayectoria profesional (datos NORMALES, sin consentimiento especial) ──
+// Los catálogos viajan como CLAVES; el servicio resuelve clave → id.
+
+export class EstudioPosteriorDto {
+  // clave de niveles_estudio (especialidad, maestria, doctorado, diplomado)
+  @IsString() @IsNotEmpty() @MaxLength(30) nivel: string;
+
+  @IsString() @IsNotEmpty() @MaxLength(150) nombre_programa: string;
+  @IsString() @IsNotEmpty() @MaxLength(150) institucion: string;
+
+  // clave de estados_estudio (en_curso, concluido, trunco)
+  @IsString() @IsNotEmpty() @MaxLength(30) estado: string;
+
+  @IsOptional() @IsNumber() @Min(1950) @Max(2026) anio?: number;
+}
+
+export class EmprendimientoDto {
+  @IsString() @IsNotEmpty() @MaxLength(150) nombre: string;
+  @IsString() @IsNotEmpty() @MaxLength(150) giro: string;
+
+  @IsOptional() @IsNumber() @Min(1950) @Max(2026) anio_inicio?: number;
+
+  @IsOptional() @IsBoolean() sigue_operando?: boolean;
+
+  // clave de rangos_empleados (solo_yo, 2_5, 6_10, mas_10)
+  @IsOptional() @IsString() @MaxLength(30) rango_empleados?: string;
+}
+
+export class ProyectoSocialDto {
+  @IsString() @IsNotEmpty() @MaxLength(150) nombre: string;
+
+  // clave de tipos_proyecto_social (voluntariado, comunitario, ...)
+  @IsString() @IsNotEmpty() @MaxLength(30) tipo: string;
+
+  @IsOptional() @IsNumber() @Min(1950) @Max(2026) anio?: number;
+
+  @IsOptional() @IsString() @MaxLength(150) organizacion?: string;
+}
+
 export class CreateEgresadoEtapa1Dto {
   @IsString() @IsNotEmpty() nombre_completo: string;
   @IsString() @IsNotEmpty() genero: string;
@@ -100,6 +139,11 @@ export class CreateEgresadoEtapa1Dto {
   @Transform(({ value }) => value ?? '')
   medio_primer_empleo_otro?: string;
 
+  // Empresa y puesto del primer empleo (opcionales; se ignoran si aún no ha
+  // conseguido empleo)
+  @IsOptional() @IsString() @MaxLength(150) primer_empleo_empresa?: string;
+  @IsOptional() @IsString() @MaxLength(150) primer_empleo_puesto?: string;
+
   // ── NUEVO: redes sociales (opcionales) ────────────────────────────────
   @IsOptional()
   @IsString()
@@ -135,4 +179,26 @@ export class CreateEgresadoEtapa1Dto {
   @ValidateNested()
   @Type(() => IdentidadDto)
   identidad?: IdentidadDto;
+
+  // ── Trayectoria profesional (opcionales, 1-a-N) ───────────────────────
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => EstudioPosteriorDto)
+  estudios?: EstudioPosteriorDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => EmprendimientoDto)
+  emprendimientos?: EmprendimientoDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => ProyectoSocialDto)
+  proyectos_sociales?: ProyectoSocialDto[];
 }

@@ -34,6 +34,10 @@ import { DiscapacidadDominiosModule } from './discapacidad-dominios/discapacidad
 import { GradosDificultadModule } from './grados-dificultad/grados-dificultad.module';
 import { RespuestasAutoadscripcionModule } from './respuestas-autoadscripcion/respuestas-autoadscripcion.module';
 import { InclusionModule } from './inclusion/inclusion.module';
+import { NivelesEstudioModule } from './niveles-estudio/niveles-estudio.module';
+import { EstadosEstudioModule } from './estados-estudio/estados-estudio.module';
+import { TiposProyectoSocialModule } from './tipos-proyecto-social/tipos-proyecto-social.module';
+import { RangosEmpleadosModule } from './rangos-empleados/rangos-empleados.module';
 
 @Module({
   imports: [
@@ -74,6 +78,10 @@ import { InclusionModule } from './inclusion/inclusion.module';
     DiscapacidadDominiosModule,
     GradosDificultadModule,
     RespuestasAutoadscripcionModule,
+    NivelesEstudioModule,
+    EstadosEstudioModule,
+    TiposProyectoSocialModule,
+    RangosEmpleadosModule,
     AuthModule,
     UsuariosModule,
     NotificacionesModule,
