@@ -385,7 +385,15 @@ export class EgresadosService {
     const antiguedad_empleo_id = dto.antiguedad_empleo
       ? await this.resolveId('antiguedad_empleo', 'id_antiguedad', 'rango', dto.antiguedad_empleo)
       : null;
-    const certificacion_vigente_id = await this.resolveId('certificaciones_vigentes', 'id_certificacion_vigente', 'respuesta', dto.certificacion_vigente);
+    // Pregunta retirada del formulario público: opcional, NULL si no viene
+    const certificacion_vigente_id = dto.certificacion_vigente?.trim()
+      ? await this.resolveId('certificaciones_vigentes', 'id_certificacion_vigente', 'respuesta', dto.certificacion_vigente.trim())
+      : null;
+
+    // ── datos laborales actuales: NULL = no aplica / no respondió (nunca '') ──
+    const empresa = dto.empresa?.trim() || null;
+    const ciudadTrabajo = dto.ciudad_trabajo?.trim() || null;
+    const puestoTrabajo = dto.puesto_trabajo?.trim() || null;
 
     // ── primer empleo ─────────────────────────────────────────────────────
     const sinEmpleo = dto.tiempo_primer_empleo === 'Aún no he conseguido empleo';
@@ -449,7 +457,7 @@ export class EgresadosService {
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
        numero_control, linkedin, facebook, instagram, puesto_trabajo,
        coincidencia_laboral_id, foto_url, registro_completo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', '', ?, ?, '', 1, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', NULL, ?, ?, ?, 1, ?, 0)`,
         [
           dto.nombre_completo,
           genero_id,
@@ -465,17 +473,18 @@ export class EgresadosService {
           certificacion_vigente_id,
           nivel_ingles_id,
           situacion_laboral_id,
-          dto.empresa || '',
+          empresa,
           antiguedad_empleo_id,
           tiempo_primer_empleo_id,
           medio_primer_empleo_id,
           medioOtro,
           primerEmpleoEmpresa,
           primerEmpleoPuesto,
-          dto.ciudad_trabajo || '',
+          ciudadTrabajo,
           dto.satisfaccion_formacion,
           facebook,
           instagram,
+          puestoTrabajo,
           fotoUrl,
         ],
       );
@@ -620,14 +629,12 @@ export class EgresadosService {
       `UPDATE egresados
      SET numero_control          = ?,
          linkedin                = ?,
-         puesto_trabajo          = ?,
          coincidencia_laboral_id = ?,
          registro_completo       = 1
    WHERE id_egresado = ?`,
       [
         dto.numero_control,
-        dto.linkedin || '',
-        dto.puesto_trabajo || '',
+        dto.linkedin?.trim() || null,
         coincidencia_laboral_id,
         id_egresado,
       ],

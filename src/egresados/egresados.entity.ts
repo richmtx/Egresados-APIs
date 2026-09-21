@@ -40,8 +40,8 @@ export class Egresado {
   @Column()
   nivel_ingles_id: number;
 
-  @Column({ type: 'varchar', length: 150 })
-  empresa: string;
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  empresa: string | null;
 
   @Column({ type: 'int', nullable: true })
   antiguedad_empleo_id: number | null;
@@ -63,8 +63,8 @@ export class Egresado {
   primer_empleo_puesto: string | null;
   // ──────────────────────────────────────────────────────────────────────
 
-  @Column({ type: 'varchar', length: 120 })
-  ciudad_trabajo: string;
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  ciudad_trabajo: string | null;
 
   @Column({ type: 'timestamp' })
   fecha_registro: Date;
@@ -72,8 +72,8 @@ export class Egresado {
   @Column({ type: 'varchar', length: 20 })
   numero_control: string;
 
-  @Column({ type: 'varchar', length: 255 })
-  linkedin: string;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  linkedin: string | null;
 
   // ── NUEVO: redes sociales (opcionales) ────────────────────────────────
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -83,8 +83,8 @@ export class Egresado {
   instagram: string | null;
   // ──────────────────────────────────────────────────────────────────────
 
-  @Column({ type: 'varchar', length: 150 })
-  puesto_trabajo: string;
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  puesto_trabajo: string | null;
 
   @Column()
   coincidencia_laboral_id: number;
@@ -98,8 +98,8 @@ export class Egresado {
   @Column()
   satisfaccion_formacion: number;
 
-  @Column()
-  certificacion_vigente_id: number;
+  @Column({ type: 'int', nullable: true })
+  certificacion_vigente_id: number | null;
 
   @Column({ type: 'tinyint', default: 0 })
   revisado: boolean;

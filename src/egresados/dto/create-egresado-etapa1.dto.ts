@@ -100,7 +100,8 @@ export class CreateEgresadoEtapa1Dto {
   
   @IsNumber() @Min(1990) @Max(2026) anio_egreso: number;
   @IsString() @IsNotEmpty() estatus_titulacion: string;
-  @IsString() @IsNotEmpty() certificacion_vigente: string;
+  // Pregunta retirada del formulario público; se acepta solo por compatibilidad
+  @IsOptional() @IsString() certificacion_vigente?: string;
   @IsString() @IsNotEmpty() nivel_ingles: string;
   @IsString() @IsNotEmpty() situacion_laboral: string;
 
@@ -119,6 +120,12 @@ export class CreateEgresadoEtapa1Dto {
   @IsString()
   @Transform(({ value }) => value ?? '')
   ciudad_trabajo?: string;
+
+  // Puesto actual (antes se capturaba en la etapa 2)
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  puesto_trabajo?: string;
 
   // ── primer empleo ─────────────────────────────────────────────────────
   @IsString() @IsNotEmpty() tiempo_primer_empleo: string;

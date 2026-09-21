@@ -681,8 +681,9 @@ export class ExportService {
 
             // ── CERTIFICACIONES ──────────────────────────────────────────────────────
             seccion('Certificaciones');
-            campoFull('Cuenta con certificación vigente', e.certificacion_vigente || '—');
-            if (todasCertificaciones.length > 0) {
+            if (todasCertificaciones.length === 0) {
+                campoFull('Certificaciones obtenidas', 'No registradas');
+            } else {
                 nuevaPaginaSiHaceFalta(25);
                 doc.fontSize(7).fillColor(GRIS).font('Helvetica')
                     .text('Certificaciones obtenidas', 40, y, { width: W });

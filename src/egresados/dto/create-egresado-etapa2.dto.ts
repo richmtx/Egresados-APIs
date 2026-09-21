@@ -5,7 +5,6 @@ export class CreateEgresadoEtapa2Dto {
   @IsString() @IsNotEmpty()  nombre_completo:      string;
   @IsString() @IsNotEmpty()  numero_control:       string;
   @IsString() @IsOptional()  linkedin:             string;
-  @IsString() @IsOptional()  puesto_trabajo:       string;
   @IsString() @IsNotEmpty()  coincidencia_laboral: string;
   @IsString() @IsOptional()  certificaciones:      string;
   @IsArray()                 habilidades:          string[];
