@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { UsuariosService } from '../usuarios/usuarios.service';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REPORTES DE INCLUSIÓN — datos personales SENSIBLES (LFPDPPP)
@@ -78,7 +79,12 @@ const NACIDO_FUERA_DE_MEXICO = `
 @Injectable()
 export class InclusionService {
 
-  constructor(private readonly dataSource: DataSource) { }
+  private readonly logger = new Logger(InclusionService.name);
+
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly usuariosService: UsuariosService,
+  ) { }
 
   private envolver<T>(datos: T) {
     return { umbral: UMBRAL, nota: NOTA_UMBRAL, datos };
@@ -195,5 +201,96 @@ export class InclusionService {
     `);
 
     return this.envolver(filas);
+  }
+
+  // 5. ESTADO DEL CONSENTIMIENTO (solo el estado, jamás las respuestas)
+  async getConsentimiento(id: number) {
+    const [fila] = await this.dataSource.query(
+      `SELECT id_egresado, consintio_datos_sensibles, fecha_consentimiento_sensibles
+       FROM egresados WHERE id_egresado = ?`,
+      [id],
+    );
+    if (!fila) throw new NotFoundException('Egresado no encontrado.');
+
+    return {
+      id_egresado: fila.id_egresado,
+      consintio: fila.consintio_datos_sensibles === 1,
+      fecha_consentimiento: fila.fecha_consentimiento_sensibles ?? null,
+    };
+  }
+
+  // 6. RETIRAR CONSENTIMIENTO (derechos ARCO)
+  // Una sola transacción; si algo falla, rollback completo. La fila del
+  // egresado se bloquea (FOR UPDATE) para que dos retiros simultáneos no
+  // dupliquen el conteo ni la auditoría.
+  async retirarConsentimiento(id: number, idAdmin: number) {
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    let filasEliminadas = 0;
+    let teniaConsentimiento = false;
+    try {
+      const [egresado] = await qr.query(
+        `SELECT consintio_datos_sensibles FROM egresados
+         WHERE id_egresado = ? FOR UPDATE`,
+        [id],
+      );
+      if (!egresado) throw new NotFoundException('Egresado no encontrado.');
+
+      teniaConsentimiento = egresado.consintio_datos_sensibles === 1;
+
+      // Los DELETE se ejecutan siempre: pueden existir filas huérfanas de
+      // alguien cuyo consentimiento ya estaba en 0.
+      const disc = await qr.query(
+        `DELETE FROM egresado_discapacidad WHERE id_egresado = ?`, [id],
+      );
+      const ident = await qr.query(
+        `DELETE FROM egresado_identidad WHERE id_egresado = ?`, [id],
+      );
+      if (teniaConsentimiento) {
+        await qr.query(
+          `UPDATE egresados
+           SET consintio_datos_sensibles = 0, fecha_consentimiento_sensibles = NULL
+           WHERE id_egresado = ?`,
+          [id],
+        );
+      }
+
+      filasEliminadas = (disc?.affectedRows ?? 0) + (ident?.affectedRows ?? 0);
+      await qr.commitTransaction();
+    } catch (err) {
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    // Sin consentimiento previo y sin filas que borrar: nada cambió, no se audita.
+    if (!teniaConsentimiento && filasEliminadas === 0) {
+      return {
+        mensaje: 'El egresado no tenía consentimiento vigente ni datos de inclusión que retirar.',
+        filas_eliminadas: 0,
+      };
+    }
+
+    // Auditoría posterior al commit. Solo el id: nada de nombre ni respuestas.
+    // Si el registro falla, el retiro ya es efectivo: se deja constancia en el
+    // log en vez de responder 500 por algo que sí se ejecutó.
+    try {
+      await this.usuariosService.registrarAccion(
+        idAdmin,
+        'retirar_consentimiento',
+        `Retiró los datos de inclusión del egresado con ID ${id}`,
+        'inclusion',
+      );
+    } catch (err) {
+      this.logger.error(
+        `Retiro aplicado al egresado ${id} pero falló el registro de auditoría`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+
+    return { mensaje: 'Datos de inclusión retirados.', filas_eliminadas: filasEliminadas };
   }
 }
