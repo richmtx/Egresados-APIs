@@ -4,6 +4,7 @@ import {
   MaxLength, ArrayMaxSize
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import { MaxCurrentYear } from '../../common/validators/max-current-year.decorator';
 
 export class AutorizacionesDto {
   @IsBoolean() estadisticas: boolean;
@@ -48,14 +49,14 @@ export class EstudioPosteriorDto {
   // clave de estados_estudio (en_curso, concluido, trunco)
   @IsString() @IsNotEmpty() @MaxLength(30) estado: string;
 
-  @IsOptional() @IsNumber() @Min(1950) @Max(2026) anio?: number;
+  @IsOptional() @IsNumber() @Min(1950) @MaxCurrentYear() anio?: number;
 }
 
 export class EmprendimientoDto {
   @IsString() @IsNotEmpty() @MaxLength(150) nombre: string;
   @IsString() @IsNotEmpty() @MaxLength(150) giro: string;
 
-  @IsOptional() @IsNumber() @Min(1950) @Max(2026) anio_inicio?: number;
+  @IsOptional() @IsNumber() @Min(1950) @MaxCurrentYear() anio_inicio?: number;
 
   @IsOptional() @IsBoolean() sigue_operando?: boolean;
 
@@ -69,7 +70,7 @@ export class ProyectoSocialDto {
   // clave de tipos_proyecto_social (voluntariado, comunitario, ...)
   @IsString() @IsNotEmpty() @MaxLength(30) tipo: string;
 
-  @IsOptional() @IsNumber() @Min(1950) @Max(2026) anio?: number;
+  @IsOptional() @IsNumber() @Min(1950) @MaxCurrentYear() anio?: number;
 
   @IsOptional() @IsString() @MaxLength(150) organizacion?: string;
 }
@@ -91,14 +92,14 @@ export class CreateEgresadoEtapa1Dto {
   @IsOptional()
   @IsNumber()
   @Min(1980)
-  @Max(2026)
+  @MaxCurrentYear()
   anio_ingreso?: number;
 
   @IsOptional()
   @IsIn(['Enero - Junio', 'Agosto - Diciembre', 'No lo recuerdo'])
   periodo_ingreso?: string;
   
-  @IsNumber() @Min(1990) @Max(2026) anio_egreso: number;
+  @IsNumber() @Min(1990) @MaxCurrentYear() anio_egreso: number;
   @IsString() @IsNotEmpty() estatus_titulacion: string;
   // Pregunta retirada del formulario público; se acepta solo por compatibilidad
   @IsOptional() @IsString() certificacion_vigente?: string;

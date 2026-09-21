@@ -60,23 +60,31 @@ export class EgresadosController {
     @Body('data') dataRaw: string | undefined,
     @Body() bodyDirecto: any,
   ) {
-    let dto: CreateEgresadoEtapa1Dto;
+    let payload: unknown;
 
     if (dataRaw) {
-      let parsed: any;
       try {
-        parsed = JSON.parse(dataRaw);
+        payload = JSON.parse(dataRaw);
       } catch {
         throw new BadRequestException('El campo "data" no es un JSON válido.');
       }
-      dto = plainToInstance(CreateEgresadoEtapa1Dto, parsed);
-      const errores = await validate(dto);
-      if (errores.length > 0) throw new BadRequestException(errores);
     } else {
-      dto = plainToInstance(CreateEgresadoEtapa1Dto, bodyDirecto);
-      const errores = await validate(dto);
-      if (errores.length > 0) throw new BadRequestException(errores);
+      payload = bodyDirecto;
     }
+
+    // Express 5 deja req.body en undefined si no hubo body parseable, y
+    // plainToInstance(undefined | primitivo) devuelve undefined, con lo que
+    // validate() truena (500) al leer `.constructor`.
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+      throw new BadRequestException(
+        'El cuerpo de la petición debe ser un objeto JSON (application/json) ' +
+        'o multipart/form-data con el campo "data".',
+      );
+    }
+
+    const dto = plainToInstance(CreateEgresadoEtapa1Dto, payload);
+    const errores = await validate(dto);
+    if (errores.length > 0) throw new BadRequestException(errores);
 
     const fotoUrl = foto ? `uploads/fotos/${foto.filename}` : null;
 
