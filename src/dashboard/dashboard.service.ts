@@ -202,10 +202,6 @@ export class DashboardService {
   FROM egresados e
   WHERE e.empresa IS NOT NULL
     AND e.empresa != ''
-    AND e.empresa NOT LIKE '%sin empleo%'
-    AND e.empresa NOT LIKE '%desempleado%'
-    AND e.empresa NOT LIKE '%no trabajo%'
-    AND e.empresa NOT LIKE '%ninguna%'
   GROUP BY e.empresa
   ORDER BY total DESC
   LIMIT 1
