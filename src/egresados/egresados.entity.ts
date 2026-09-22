@@ -98,9 +98,6 @@ export class Egresado {
   @Column()
   satisfaccion_formacion: number;
 
-  @Column({ type: 'int', nullable: true })
-  certificacion_vigente_id: number | null;
-
   @Column({ type: 'tinyint', default: 0 })
   revisado: boolean;
 

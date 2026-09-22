@@ -12,7 +12,6 @@ import { CarrerasModule } from './carreras/carreras.module';
 import { AntiguedadModule } from './antiguedad-empleo/antiguedad.module';
 import { AutorizacionesModule } from './autorizaciones/autorizaciones.module';
 import { CertificacionesModule } from './certificaciones/certificaciones.module';
-import { CertificacionesVModule } from './certificaciones-vigentes/certificacionesV.module';
 import { CoincidenciaModule } from './coincidencia-laboral/coincidencia.module';
 import { ColabOtroModule } from './colaboracion-otro/colabOtro.module';
 import { ColaboracionesModule } from './colaboraciones/colaboraciones.module';
@@ -62,7 +61,6 @@ import { RangosEmpleadosModule } from './rangos-empleados/rangos-empleados.modul
     AntiguedadModule,
     AutorizacionesModule,
     CertificacionesModule,
-    CertificacionesVModule,
     CoincidenciaModule,
     ColabOtroModule,
     ColaboracionesModule,

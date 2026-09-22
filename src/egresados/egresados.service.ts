@@ -385,10 +385,6 @@ export class EgresadosService {
     const antiguedad_empleo_id = dto.antiguedad_empleo
       ? await this.resolveId('antiguedad_empleo', 'id_antiguedad', 'rango', dto.antiguedad_empleo)
       : null;
-    // Pregunta retirada del formulario público: opcional, NULL si no viene
-    const certificacion_vigente_id = dto.certificacion_vigente?.trim()
-      ? await this.resolveId('certificaciones_vigentes', 'id_certificacion_vigente', 'respuesta', dto.certificacion_vigente.trim())
-      : null;
 
     // ── datos laborales actuales: NULL = no aplica / no respondió (nunca '') ──
     const empresa = dto.empresa?.trim() || null;
@@ -450,14 +446,14 @@ export class EgresadosService {
       (nombre_completo, genero_id, correo, telefono, ciudad_residencia,
        pais_nacimiento,
        carrera_id, anio_ingreso, periodo_ingreso, anio_egreso,
-       estatus_titulacion, certificacion_vigente_id,
+       estatus_titulacion,
        nivel_ingles_id, situacion_laboral_id, empresa, antiguedad_empleo_id,
        tiempo_primer_empleo_id, medio_primer_empleo_id, medio_primer_empleo_otro,
        primer_empleo_empresa, primer_empleo_puesto,
        ciudad_trabajo, satisfaccion_formacion, fecha_registro,
        numero_control, linkedin, facebook, instagram, puesto_trabajo,
        coincidencia_laboral_id, foto_url, registro_completo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', NULL, ?, ?, ?, 1, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), '', NULL, ?, ?, ?, 1, ?, 0)`,
         [
           dto.nombre_completo,
           genero_id,
@@ -470,7 +466,6 @@ export class EgresadosService {
           dto.periodo_ingreso ?? null,
           dto.anio_egreso,
           dto.estatus_titulacion,
-          certificacion_vigente_id,
           nivel_ingles_id,
           situacion_laboral_id,
           empresa,
@@ -747,7 +742,6 @@ export class EgresadosService {
       ae.rango     AS antiguedad_empleo,
       cl.nivel     AS coincidencia_laboral,
       sl.situacion AS situacion_laboral,
-      cv.respuesta AS certificacion_vigente,
       aut.autorizo_estadisticas,
       aut.autorizo_contacto,
       aut.autorizo_eventos
@@ -758,7 +752,6 @@ export class EgresadosService {
     LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id       = ae.id_antiguedad
     LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id    = cl.id_coincidencia
     LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id       = sl.id_situacion
-    LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id   = cv.id_certificacion_vigente
     LEFT JOIN autorizaciones           aut ON e.id_egresado                = aut.id_egresado
     ORDER BY e.id_egresado DESC
   `);
@@ -803,7 +796,6 @@ export class EgresadosService {
       ae.rango        AS antiguedad_empleo,
       cl.nivel        AS coincidencia_laboral,
       sl.situacion    AS situacion_laboral,
-      cv.respuesta    AS certificacion_vigente,
       tpe.rango       AS tiempo_primer_empleo,
       mpe.medio       AS medio_primer_empleo,
       aut.autorizo_estadisticas,
@@ -816,7 +808,6 @@ export class EgresadosService {
     LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id     = ae.id_antiguedad
     LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id  = cl.id_coincidencia
     LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id     = sl.id_situacion
-    LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id = cv.id_certificacion_vigente
     LEFT JOIN tiempo_primer_empleo     tpe ON e.tiempo_primer_empleo_id  = tpe.id_tiempo
     LEFT JOIN medio_primer_empleo      mpe ON e.medio_primer_empleo_id   = mpe.id_medio
     LEFT JOIN autorizaciones           aut ON e.id_egresado              = aut.id_egresado

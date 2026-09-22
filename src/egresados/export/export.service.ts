@@ -409,7 +409,6 @@ export class ExportService {
                 ae.rango        AS antiguedad_empleo,
                 cl.nivel        AS coincidencia_laboral,
                 sl.situacion    AS situacion_laboral,
-                cv.respuesta    AS certificacion_vigente,
                 tpe.rango       AS tiempo_primer_empleo,
                 mpe.medio       AS medio_primer_empleo,
                 aut.autorizo_estadisticas,
@@ -422,7 +421,6 @@ export class ExportService {
             LEFT JOIN antiguedad_empleo        ae  ON e.antiguedad_empleo_id    = ae.id_antiguedad
             LEFT JOIN coincidencia_laboral     cl  ON e.coincidencia_laboral_id = cl.id_coincidencia
             LEFT JOIN situacion_laboral        sl  ON e.situacion_laboral_id    = sl.id_situacion
-            LEFT JOIN certificaciones_vigentes cv  ON e.certificacion_vigente_id = cv.id_certificacion_vigente
             LEFT JOIN tiempo_primer_empleo     tpe ON e.tiempo_primer_empleo_id = tpe.id_tiempo
             LEFT JOIN medio_primer_empleo      mpe ON e.medio_primer_empleo_id  = mpe.id_medio
             LEFT JOIN autorizaciones           aut ON e.id_egresado             = aut.id_egresado

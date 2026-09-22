@@ -101,8 +101,6 @@ export class CreateEgresadoEtapa1Dto {
   
   @IsNumber() @Min(1990) @MaxCurrentYear() anio_egreso: number;
   @IsString() @IsNotEmpty() estatus_titulacion: string;
-  // Pregunta retirada del formulario público; se acepta solo por compatibilidad
-  @IsOptional() @IsString() certificacion_vigente?: string;
   @IsString() @IsNotEmpty() nivel_ingles: string;
   @IsString() @IsNotEmpty() situacion_laboral: string;
 
