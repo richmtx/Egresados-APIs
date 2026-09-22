@@ -1,5 +1,6 @@
-import { Controller, Delete, Get, Header, Param, ParseIntPipe, Req, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Header, Param, ParseIntPipe, Req, Res, UseGuards } from '@nestjs/common';
 import { InclusionService } from './inclusion.service';
+import { ExportInclusionService } from './export/export-inclusion.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -13,7 +14,10 @@ import { Roles } from '../auth/roles.decorator';
 @Controller('inclusion')
 export class InclusionController {
 
-  constructor(private readonly inclusionService: InclusionService) { }
+  constructor(
+    private readonly inclusionService: InclusionService,
+    private readonly exportInclusionService: ExportInclusionService,
+  ) { }
 
   @Get('resumen')
   @Header('Cache-Control', 'no-store')
@@ -37,6 +41,36 @@ export class InclusionController {
   @Header('Cache-Control', 'no-store')
   getPorAnioEgreso() {
     return this.inclusionService.getPorAnioEgreso();
+  }
+
+  @Get('identidad-por-pregunta')
+  @Header('Cache-Control', 'no-store')
+  getIdentidadPorPregunta() {
+    return this.inclusionService.getIdentidadPorPregunta();
+  }
+
+  @Get('export/pdf')
+  async exportarPdf(@Res() res: any) {
+    const buffer = await this.exportInclusionService.exportarInclusionPdf();
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="inclusion_${fecha}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
+  @Get('export/excel')
+  async exportarExcel(@Res() res: any) {
+    const buffer = await this.exportInclusionService.exportarInclusionExcel();
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="inclusion_${fecha}.xlsx"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   // Solo el estado del consentimiento; nunca las respuestas.
