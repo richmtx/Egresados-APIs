@@ -949,8 +949,8 @@ export class ExportEstadisticasService {
       [260, 160], MARGIN_X, y, onNewPage,
     );
 
-    // 2) Egresados con Posgrado
-    if ((data.posgradoPorTipo || []).length > 0) {
+    // 2) Egresados con Posgrado (solo sin filtro de carrera: la consulta no filtra por carrera)
+    if (!carrera && (data.posgradoPorTipo || []).length > 0) {
       y = this.pdfSection(doc, 'Egresados con Posgrado', y, onNewPage);
       y = this.pdfTable(
         doc,
@@ -1096,8 +1096,8 @@ export class ExportEstadisticasService {
       ], 4);
     }
 
-    // 2) Egresados con Posgrado
-    {
+    // 2) Egresados con Posgrado (solo sin filtro de carrera: la consulta no filtra por carrera)
+    if (!carrera) {
       const ws = addSheet('Posgrado', 2, 'Egresados con Posgrado');
       ws.columns = [{ key: 'tipo', width: 34 }, { key: 't', width: 15 }];
       this.excelTable(ws, ['Tipo de Posgrado', 'Total'],
@@ -3309,6 +3309,290 @@ export class ExportEstadisticasService {
         row.getCell(2).alignment = { vertical: 'middle', wrapText: true };
         row.height = 30;
       }
+    }
+
+    return this.toBuffer(wb);
+  }
+
+  // TRAYECTORIA PROFESIONAL — Fase 4
+
+  // Sub-encabezado dentro de una hoja que agrupa varias tablas (una hoja
+  // por bloque temático). Devuelve la fila donde debe iniciar la tabla.
+  private excelSubheading(ws: ExcelJS.Worksheet, titulo: string, numCols: number, row: number): number {
+    const lastCol = String.fromCharCode(64 + numCols);
+    ws.mergeCells(`A${row}:${lastCol}${row}`);
+    const cell = ws.getCell(`A${row}`);
+    cell.value = titulo;
+    cell.font = { bold: true, size: 10.5, color: { argb: COLOR_VINO_ARG } };
+    cell.alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(row).height = 20;
+    return row + 1;
+  }
+
+  async exportarTrayectoriaPdf(carrera?: string, anio?: number): Promise<Buffer> {
+    const data = await this.egresadosService.getTrayectoria(carrera, anio);
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
+    const doc = this.pdfDoc();
+    const bufPromise = this.collectBuffer(doc);
+    const onNewPage = () => this.pdfNewPage(doc);
+
+    const k = data.kpis;
+    const total = Number(k.total_egresados) || 1;
+    const pct = (n: any) => `${((Number(n) / total) * 100).toFixed(1)}%`;
+
+    let y = this.pdfPageHeader(doc, 'Trayectoria Profesional', filtros, fecha);
+
+    // 1) KPIs
+    y = this.pdfSection(doc, 'Indicadores de Trayectoria', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Indicador', 'Valor'],
+      [
+        ['Total Egresados', String(k.total_egresados)],
+        ['Con Estudios Posteriores', String(k.con_estudios_posteriores)],
+        ['% Con Estudios Posteriores', pct(k.con_estudios_posteriores)],
+        ['Con Emprendimiento', String(k.con_emprendimiento)],
+        ['% Con Emprendimiento', pct(k.con_emprendimiento)],
+        ['Emprendimientos Activos', String(k.emprendimientos_activos)],
+        ['Con Proyecto Social', String(k.con_proyecto_social)],
+        ['% Con Proyecto Social', pct(k.con_proyecto_social)],
+        ['Con Certificaciones', String(k.con_certificaciones)],
+        ['% Con Certificaciones', pct(k.con_certificaciones)],
+      ],
+      [260, 160], MARGIN_X, y, onNewPage,
+    );
+
+    // 2) Estudios por nivel
+    y = this.pdfSection(doc, 'Estudios Posteriores por Nivel', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Nivel', 'Total'],
+      (data.estudiosPorNivel || []).map((r: any) => [r.nivel, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 3) Estudios por estado
+    y = this.pdfSection(doc, 'Estudios Posteriores por Estado', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Estado', 'Total'],
+      (data.estudiosPorEstado || []).map((r: any) => [r.estado, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 4) Top instituciones
+    y = this.pdfSection(doc, 'Top 10 Instituciones', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Institución', 'Total'],
+      (data.topInstituciones || []).map((r: any) => [r.institucion, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 5) Estudios por carrera
+    y = this.pdfSection(doc, 'Estudios Posteriores por Carrera', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Total Egresados', 'Con Estudios', '%'],
+      (data.estudiosPorCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        String(r.total_egresados),
+        String(r.con_estudios),
+        `${(+(r.pct) || 0).toFixed(1)}%`,
+      ]),
+      [220, 100, 100, 60], MARGIN_X, y, onNewPage,
+      undefined, 28,
+    );
+
+    // 6) Emprendimiento por rango de empleados
+    y = this.pdfSection(doc, 'Emprendimiento por Rango de Empleados', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Rango de Empleados', 'Total'],
+      (data.emprendimientoPorRango || []).map((r: any) => [r.rango, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 7) Top giros
+    y = this.pdfSection(doc, 'Top 10 Giros de Emprendimiento', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Giro', 'Total'],
+      (data.topGiros || []).map((r: any) => [r.giro, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 8) Emprendimiento por carrera
+    y = this.pdfSection(doc, 'Emprendimiento por Carrera', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Total Egresados', 'Con Emprendimiento', '%'],
+      (data.emprendimientoPorCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        String(r.total_egresados),
+        String(r.con_emprendimiento),
+        `${(+(r.pct) || 0).toFixed(1)}%`,
+      ]),
+      [220, 100, 120, 60], MARGIN_X, y, onNewPage,
+      undefined, 28,
+    );
+
+    // 9) Proyectos por tipo
+    y = this.pdfSection(doc, 'Proyectos Sociales por Tipo', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Tipo', 'Total'],
+      (data.proyectosPorTipo || []).map((r: any) => [r.tipo, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 10) Proyectos por carrera
+    y = this.pdfSection(doc, 'Proyectos Sociales por Carrera', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Carrera', 'Total Egresados', 'Con Proyecto', '%'],
+      (data.proyectosPorCarrera || []).map((r: any) => [
+        r.nombre_carrera,
+        String(r.total_egresados),
+        String(r.con_proyecto),
+        `${(+(r.pct) || 0).toFixed(1)}%`,
+      ]),
+      [220, 100, 100, 60], MARGIN_X, y, onNewPage,
+      undefined, 28,
+    );
+
+    // 11) Top organizaciones
+    y = this.pdfSection(doc, 'Top 10 Organizaciones', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Organización', 'Total'],
+      (data.topOrganizaciones || []).map((r: any) => [r.organizacion, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 12) Top empresas del primer empleo
+    y = this.pdfSection(doc, 'Top 10 Empresas del Primer Empleo', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Empresa', 'Total'],
+      (data.topEmpresasPrimerEmpleo || []).map((r: any) => [r.empresa, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    // 13) Top puestos del primer empleo
+    y = this.pdfSection(doc, 'Top 10 Puestos del Primer Empleo', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Puesto', 'Total'],
+      (data.topPuestosPrimerEmpleo || []).map((r: any) => [r.puesto, String(r.total)]),
+      [340, 120], MARGIN_X, y, onNewPage,
+    );
+
+    this.pdfFooter(doc, fecha);
+    doc.end();
+    return bufPromise;
+  }
+
+  async exportarTrayectoriaExcel(carrera?: string, anio?: number): Promise<Buffer> {
+    const data = await this.egresadosService.getTrayectoria(carrera, anio);
+    const fecha = this.fechaStr();
+    const filtros = this.filtroDesc(carrera, anio);
+    const { wb, addSheet } = this.makeWorkbook('Trayectoria Profesional', filtros, fecha, () => 0);
+
+    const k = data.kpis;
+    const total = Number(k.total_egresados) || 1;
+    const pct = (n: any) => +((Number(n) / total) * 100).toFixed(2);
+
+    // 1) Indicadores
+    {
+      const ws = addSheet('Indicadores', 2, 'Indicadores de Trayectoria');
+      ws.columns = [{ key: 'ind', width: 32 }, { key: 'val', width: 18 }];
+      this.excelTable(ws, ['Indicador', 'Valor'], [
+        ['Total Egresados', Number(k.total_egresados)],
+        ['Con Estudios Posteriores', Number(k.con_estudios_posteriores)],
+        ['% Con Estudios Posteriores', pct(k.con_estudios_posteriores)],
+        ['Con Emprendimiento', Number(k.con_emprendimiento)],
+        ['% Con Emprendimiento', pct(k.con_emprendimiento)],
+        ['Emprendimientos Activos', Number(k.emprendimientos_activos)],
+        ['Con Proyecto Social', Number(k.con_proyecto_social)],
+        ['% Con Proyecto Social', pct(k.con_proyecto_social)],
+        ['Con Certificaciones', Number(k.con_certificaciones)],
+        ['% Con Certificaciones', pct(k.con_certificaciones)],
+      ], 4);
+    }
+
+    // 2) Estudios
+    {
+      const ws = addSheet('Estudios', 4, 'Estudios Posteriores');
+      ws.columns = [{ width: 38 }, { width: 16 }, { width: 16 }, { width: 16 }];
+      let row = 4;
+      row = this.excelSubheading(ws, 'Estudios por Nivel', 4, row);
+      row = this.excelTable(ws, ['Nivel', 'Total'],
+        (data.estudiosPorNivel || []).map((r: any) => [r.nivel, Number(r.total)]), row) + 1;
+      row = this.excelSubheading(ws, 'Estudios por Estado', 4, row);
+      row = this.excelTable(ws, ['Estado', 'Total'],
+        (data.estudiosPorEstado || []).map((r: any) => [r.estado, Number(r.total)]), row) + 1;
+      row = this.excelSubheading(ws, 'Top 10 Instituciones', 4, row);
+      row = this.excelTable(ws, ['Institución', 'Total'],
+        (data.topInstituciones || []).map((r: any) => [r.institucion, Number(r.total)]), row) + 1;
+      row = this.excelSubheading(ws, 'Estudios por Carrera', 4, row);
+      row = this.excelTable(ws, ['Carrera', 'Total Egresados', 'Con Estudios', '%'],
+        (data.estudiosPorCarrera || []).map((r: any) => [
+          r.nombre_carrera, Number(r.total_egresados), Number(r.con_estudios),
+          +(+(r.pct) || 0).toFixed(2),
+        ]), row);
+    }
+
+    // 3) Emprendimiento
+    {
+      const ws = addSheet('Emprendimiento', 4, 'Emprendimiento');
+      ws.columns = [{ width: 38 }, { width: 18 }, { width: 18 }, { width: 16 }];
+      let row = 4;
+      row = this.excelSubheading(ws, 'Emprendimiento por Rango de Empleados', 4, row);
+      row = this.excelTable(ws, ['Rango de Empleados', 'Total'],
+        (data.emprendimientoPorRango || []).map((r: any) => [r.rango, Number(r.total)]), row) + 1;
+      row = this.excelSubheading(ws, 'Top 10 Giros', 4, row);
+      row = this.excelTable(ws, ['Giro', 'Total'],
+        (data.topGiros || []).map((r: any) => [r.giro, Number(r.total)]), row) + 1;
+      row = this.excelSubheading(ws, 'Emprendimiento por Carrera', 4, row);
+      row = this.excelTable(ws, ['Carrera', 'Total Egresados', 'Con Emprendimiento', '%'],
+        (data.emprendimientoPorCarrera || []).map((r: any) => [
+          r.nombre_carrera, Number(r.total_egresados), Number(r.con_emprendimiento),
+          +(+(r.pct) || 0).toFixed(2),
+        ]), row);
+    }
+
+    // 4) Proyectos Sociales
+    {
+      const ws = addSheet('Proyectos Sociales', 4, 'Proyectos Sociales');
+      ws.columns = [{ width: 38 }, { width: 18 }, { width: 18 }, { width: 16 }];
+      let row = 4;
+      row = this.excelSubheading(ws, 'Proyectos por Tipo', 4, row);
+      row = this.excelTable(ws, ['Tipo', 'Total'],
+        (data.proyectosPorTipo || []).map((r: any) => [r.tipo, Number(r.total)]), row) + 1;
+      row = this.excelSubheading(ws, 'Proyectos por Carrera', 4, row);
+      row = this.excelTable(ws, ['Carrera', 'Total Egresados', 'Con Proyecto', '%'],
+        (data.proyectosPorCarrera || []).map((r: any) => [
+          r.nombre_carrera, Number(r.total_egresados), Number(r.con_proyecto),
+          +(+(r.pct) || 0).toFixed(2),
+        ]), row) + 1;
+      row = this.excelSubheading(ws, 'Top 10 Organizaciones', 4, row);
+      row = this.excelTable(ws, ['Organización', 'Total'],
+        (data.topOrganizaciones || []).map((r: any) => [r.organizacion, Number(r.total)]), row);
+    }
+
+    // 5) Primer Empleo
+    {
+      const ws = addSheet('Primer Empleo', 2, 'Primer Empleo');
+      ws.columns = [{ width: 38 }, { width: 16 }];
+      let row = 4;
+      row = this.excelSubheading(ws, 'Top 10 Empresas', 2, row);
+      row = this.excelTable(ws, ['Empresa', 'Total'],
+        (data.topEmpresasPrimerEmpleo || []).map((r: any) => [r.empresa, Number(r.total)]), row) + 1;
+      row = this.excelSubheading(ws, 'Top 10 Puestos', 2, row);
+      row = this.excelTable(ws, ['Puesto', 'Total'],
+        (data.topPuestosPrimerEmpleo || []).map((r: any) => [r.puesto, Number(r.total)]), row);
     }
 
     return this.toBuffer(wb);

@@ -251,6 +251,32 @@ export class EgresadosController {
   }
 
   @Roles('admin')
+  @Get('trayectoria/export/pdf')
+  async exportTrayectoriaPdf(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarTrayectoriaPdf(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="trayectoria_${fecha}.pdf"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Roles('admin')
+  @Get('trayectoria/export/excel')
+  async exportTrayectoriaExcel(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+    @Res() res?: any,
+  ) {
+    const buffer = await this.exportEstadisticasService.exportarTrayectoriaExcel(carrera, anio ? +anio : undefined);
+    const fecha = new Date().toISOString().split('T')[0];
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="trayectoria_${fecha}.xlsx"`, 'Content-Length': buffer.length });
+    res.end(buffer);
+  }
+
+  @Roles('admin')
   @Get('vinculacion/export/pdf')
   async exportVinculacionPdf(
     @Query('carrera') carrera?: string,
@@ -396,6 +422,14 @@ export class EgresadosController {
     @Query('anio') anio?: string,
   ) {
     return this.egresadosService.getDistribucionGeografica(carrera, anio ? Number(anio) : undefined);
+  }
+
+  @Get('trayectoria')
+  getTrayectoria(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getTrayectoria(carrera, anio ? +anio : undefined);
   }
 
   @Get('vinculacion/colaboracion')

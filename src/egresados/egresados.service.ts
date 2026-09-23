@@ -2318,6 +2318,236 @@ export class EgresadosService {
     };
   }
 
+  // TRAYECTORIA PROFESIONAL — Fase 4 (estudios posteriores, emprendimientos,
+  // proyectos sociales, primer empleo). Solo agregados: nunca nombres,
+  // correos ni id_egresado individuales.
+  //
+  // NOTA mysql2: igual que en getEstadisticas, los COUNT()/SUM() de esta
+  // consulta llegan como strings (BIGINT sin pérdida de precisión). Se
+  // devuelven tal cual; el consumidor debe convertirlos con Number(...)
+  // antes de operar con ellos.
+  async getTrayectoria(carrera?: string, anio?: number): Promise<any> {
+
+    const params: any[] = [];
+    const conditions: string[] = ['1=1'];
+
+    if (carrera) {
+      conditions.push(`c.nombre_carrera = ?`);
+      params.push(carrera);
+    }
+    if (anio) {
+      conditions.push(`e.anio_egreso = ?`);
+      params.push(anio);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    // Ids de egresados que cumplen el filtro — se reutiliza como subconsulta
+    // no correlacionada para las tablas hijas (estudios, emprendimientos,
+    // proyectos sociales), evitando el fan-out que produciría un JOIN directo.
+    const filtroIds = `
+      SELECT e.id_egresado FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+    `;
+
+    // 1. KPIs
+    const [kpis] = await this.dataSource.query(`
+      SELECT
+        COUNT(*) AS total_egresados,
+        SUM((SELECT COUNT(*) FROM egresado_estudios es WHERE es.id_egresado = e.id_egresado) > 0)
+          AS con_estudios_posteriores,
+        SUM((SELECT COUNT(*) FROM egresado_emprendimientos em WHERE em.id_egresado = e.id_egresado) > 0)
+          AS con_emprendimiento,
+        SUM((SELECT COUNT(*) FROM egresado_emprendimientos em
+             WHERE em.id_egresado = e.id_egresado AND em.sigue_operando = 1) > 0)
+          AS emprendimientos_activos,
+        SUM((SELECT COUNT(*) FROM egresado_proyectos_sociales ps WHERE ps.id_egresado = e.id_egresado) > 0)
+          AS con_proyecto_social,
+        SUM((SELECT COUNT(*) FROM certificaciones cert WHERE cert.id_egresado = e.id_egresado) > 0)
+          AS con_certificaciones
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+    `, params);
+
+    // ── ESTUDIOS POSTERIORES ─────────────────────────────────────────────
+
+    const estudiosPorNivel = await this.dataSource.query(`
+      SELECT ne.descripcion AS nivel, COUNT(es.id_estudio) AS total
+      FROM niveles_estudio ne
+      LEFT JOIN egresado_estudios es
+        ON es.id_nivel_estudio = ne.id_nivel_estudio
+       AND es.id_egresado IN (${filtroIds})
+      GROUP BY ne.id_nivel_estudio, ne.descripcion, ne.orden
+      ORDER BY ne.orden ASC
+    `, params);
+
+    const estudiosPorEstado = await this.dataSource.query(`
+      SELECT ee.descripcion AS estado, COUNT(es.id_estudio) AS total
+      FROM estados_estudio ee
+      LEFT JOIN egresado_estudios es
+        ON es.id_estado_estudio = ee.id_estado_estudio
+       AND es.id_egresado IN (${filtroIds})
+      GROUP BY ee.id_estado_estudio, ee.descripcion, ee.orden
+      ORDER BY ee.orden ASC
+    `, params);
+
+    const topInstituciones = await this.dataSource.query(`
+      SELECT TRIM(es.institucion) AS institucion, COUNT(*) AS total
+      FROM egresado_estudios es
+      WHERE es.id_egresado IN (${filtroIds})
+        AND TRIM(es.institucion) != ''
+      GROUP BY TRIM(es.institucion)
+      ORDER BY total DESC
+      LIMIT 10
+    `, params);
+
+    const estudiosPorCarrera = await this.dataSource.query(`
+      SELECT
+        c.nombre_carrera,
+        COUNT(*) AS total_egresados,
+        SUM((SELECT COUNT(*) FROM egresado_estudios es WHERE es.id_egresado = e.id_egresado) > 0)
+          AS con_estudios,
+        ROUND(
+          SUM((SELECT COUNT(*) FROM egresado_estudios es WHERE es.id_egresado = e.id_egresado) > 0)
+          * 100.0 / COUNT(*), 1
+        ) AS pct
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY c.nombre_carrera
+      ORDER BY pct DESC
+    `, params);
+
+    // ── EMPRENDIMIENTO ───────────────────────────────────────────────────
+
+    const emprendimientoPorRango = await this.dataSource.query(`
+      SELECT re.descripcion AS rango, COUNT(em.id_emprendimiento) AS total
+      FROM rangos_empleados re
+      LEFT JOIN egresado_emprendimientos em
+        ON em.id_rango_empleados = re.id_rango_empleados
+       AND em.id_egresado IN (${filtroIds})
+      GROUP BY re.id_rango_empleados, re.descripcion, re.orden
+      ORDER BY re.orden ASC
+    `, params);
+
+    const topGiros = await this.dataSource.query(`
+      SELECT TRIM(em.giro) AS giro, COUNT(*) AS total
+      FROM egresado_emprendimientos em
+      WHERE em.id_egresado IN (${filtroIds})
+        AND TRIM(em.giro) != ''
+      GROUP BY TRIM(em.giro)
+      ORDER BY total DESC
+      LIMIT 10
+    `, params);
+
+    const emprendimientoPorCarrera = await this.dataSource.query(`
+      SELECT
+        c.nombre_carrera,
+        COUNT(*) AS total_egresados,
+        SUM((SELECT COUNT(*) FROM egresado_emprendimientos em WHERE em.id_egresado = e.id_egresado) > 0)
+          AS con_emprendimiento,
+        ROUND(
+          SUM((SELECT COUNT(*) FROM egresado_emprendimientos em WHERE em.id_egresado = e.id_egresado) > 0)
+          * 100.0 / COUNT(*), 1
+        ) AS pct
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY c.nombre_carrera
+      ORDER BY pct DESC
+    `, params);
+
+    // ── PROYECTOS SOCIALES ───────────────────────────────────────────────
+
+    const proyectosPorTipo = await this.dataSource.query(`
+      SELECT tp.descripcion AS tipo, COUNT(ps.id_proyecto) AS total
+      FROM tipos_proyecto_social tp
+      LEFT JOIN egresado_proyectos_sociales ps
+        ON ps.id_tipo_proyecto = tp.id_tipo_proyecto
+       AND ps.id_egresado IN (${filtroIds})
+      GROUP BY tp.id_tipo_proyecto, tp.descripcion, tp.orden
+      ORDER BY tp.orden ASC
+    `, params);
+
+    const proyectosPorCarrera = await this.dataSource.query(`
+      SELECT
+        c.nombre_carrera,
+        COUNT(*) AS total_egresados,
+        SUM((SELECT COUNT(*) FROM egresado_proyectos_sociales ps WHERE ps.id_egresado = e.id_egresado) > 0)
+          AS con_proyecto,
+        ROUND(
+          SUM((SELECT COUNT(*) FROM egresado_proyectos_sociales ps WHERE ps.id_egresado = e.id_egresado) > 0)
+          * 100.0 / COUNT(*), 1
+        ) AS pct
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      GROUP BY c.nombre_carrera
+      ORDER BY pct DESC
+    `, params);
+
+    const topOrganizaciones = await this.dataSource.query(`
+      SELECT TRIM(ps.organizacion) AS organizacion, COUNT(*) AS total
+      FROM egresado_proyectos_sociales ps
+      WHERE ps.id_egresado IN (${filtroIds})
+        AND ps.organizacion IS NOT NULL
+        AND TRIM(ps.organizacion) != ''
+      GROUP BY TRIM(ps.organizacion)
+      ORDER BY total DESC
+      LIMIT 10
+    `, params);
+
+    // ── PRIMER EMPLEO ─────────────────────────────────────────────────────
+
+    const topEmpresasPrimerEmpleo = await this.dataSource.query(`
+      SELECT TRIM(e.primer_empleo_empresa) AS empresa, COUNT(*) AS total
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+        AND e.primer_empleo_empresa IS NOT NULL
+        AND TRIM(e.primer_empleo_empresa) != ''
+      GROUP BY TRIM(e.primer_empleo_empresa)
+      ORDER BY total DESC
+      LIMIT 10
+    `, params);
+
+    const topPuestosPrimerEmpleo = await this.dataSource.query(`
+      SELECT TRIM(e.primer_empleo_puesto) AS puesto, COUNT(*) AS total
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+        AND e.primer_empleo_puesto IS NOT NULL
+        AND TRIM(e.primer_empleo_puesto) != ''
+      GROUP BY TRIM(e.primer_empleo_puesto)
+      ORDER BY total DESC
+      LIMIT 10
+    `, params);
+
+    // ── FILTROS DISPONIBLES ──────────────────────────────────────────────
+    const { carreras: carrerasDisponibles, anios: aniosDisponibles } =
+      await this.getFiltrosDirectorio();
+
+    return {
+      kpis,
+      estudiosPorNivel,
+      estudiosPorEstado,
+      topInstituciones,
+      estudiosPorCarrera,
+      emprendimientoPorRango,
+      topGiros,
+      emprendimientoPorCarrera,
+      proyectosPorTipo,
+      proyectosPorCarrera,
+      topOrganizaciones,
+      topEmpresasPrimerEmpleo,
+      topPuestosPrimerEmpleo,
+      carrerasDisponibles,
+      aniosDisponibles,
+    };
+  }
+
   // DIRECTORIO — paginado y filtrable
   async getDirectorioPublico(
     page: number = 1,
