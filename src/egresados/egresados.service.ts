@@ -985,6 +985,30 @@ export class EgresadosService {
       GROUP BY e.anio_ingreso ORDER BY e.anio_ingreso ASC
     `, params);
 
+    // 4b2. Titulación por cohorte y semestre de ingreso
+    const titulacionCohorteSemestre = await this.dataSource.query(`
+      SELECT e.anio_ingreso,
+             CASE
+               WHEN e.periodo_ingreso IS NULL OR e.periodo_ingreso = 'No lo recuerdo' THEN 'Sin especificar'
+               ELSE e.periodo_ingreso
+             END AS periodo_ingreso,
+             COUNT(*) AS total,
+             SUM(e.estatus_titulacion = 'Titulado')   AS titulados,
+             SUM(e.estatus_titulacion = 'En trámite') AS en_tramite,
+             SUM(e.estatus_titulacion = 'No titulado') AS no_titulados,
+             ROUND(SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1) AS pct_titulados
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where} AND e.anio_ingreso IS NOT NULL
+      GROUP BY e.anio_ingreso, periodo_ingreso
+      ORDER BY e.anio_ingreso ASC,
+               CASE periodo_ingreso
+                 WHEN 'Enero - Junio' THEN 1
+                 WHEN 'Agosto - Diciembre' THEN 2
+                 ELSE 3
+               END ASC
+    `, params);
+
     // 4c. Cobertura del dato de cohorte
     const coberturaCohorte = await this.dataSource.query(`
       SELECT COUNT(*) AS total,
@@ -1260,6 +1284,7 @@ export class EgresadosService {
       empleabilidadCarrera,
       titulacionAnio,
       titulacionCohorte,
+      titulacionCohorteSemestre,
       coberturaCohorte: coberturaCohorte[0],
       nivelesIngles,
       inglesCarrera,

@@ -1016,6 +1016,32 @@ export class ExportEstadisticasService {
       );
     }
 
+    // 4b2) Titulación por Cohorte y Semestre de Ingreso
+    if ((data.titulacionCohorteSemestre || []).length > 0) {
+      const ordenPeriodo = (p: string) =>
+        p === 'Enero - Junio' ? 0 : p === 'Agosto - Diciembre' ? 1 : 2;
+      y = this.pdfSection(doc, 'Titulación por Cohorte y Semestre de Ingreso', y, onNewPage);
+      y = this.pdfTable(
+        doc,
+        ['Año ingreso', 'Semestre', 'Total', 'Titulados', 'En Trámite', 'No Tit.', '% Tit.'],
+        (data.titulacionCohorteSemestre || [])
+          .sort((a: any, b: any) =>
+            Number(a.anio_ingreso) - Number(b.anio_ingreso) ||
+            ordenPeriodo(a.periodo_ingreso) - ordenPeriodo(b.periodo_ingreso),
+          )
+          .map((r: any) => [
+            String(r.anio_ingreso),
+            r.periodo_ingreso,
+            String(r.total),
+            String(r.titulados),
+            String(r.en_tramite),
+            String(r.no_titulados ?? 0),
+            `${(+(r.pct_titulados) || 0).toFixed(1)}%`,
+          ]),
+        [70, 140, 60, 80, 90, 75, 70], MARGIN_X, y, onNewPage,
+      );
+    }
+
     // 5) Detalle por Carrera y Año de Egreso
     if ((data.titulacionCarreraAnio || []).length > 0) {
       y = this.pdfSection(doc, 'Detalle por Carrera y Año de Egreso', y, onNewPage);
@@ -1060,10 +1086,10 @@ export class ExportEstadisticasService {
       const ws = addSheet('Indicadores', 2, 'Indicadores de Titulación');
       ws.columns = [{ key: 'ind', width: 30 }, { key: 'val', width: 20 }];
       this.excelTable(ws, ['Indicador', 'Valor'], [
-        ['Total Egresados', k.total_egresados],
-        ['Titulados', k.titulados],
-        ['En Trámite', k.en_tramite],
-        ['No Titulados', k.no_titulados],
+        ['Total Egresados', Number(k.total_egresados)],
+        ['Titulados', Number(k.titulados)],
+        ['En Trámite', Number(k.en_tramite)],
+        ['No Titulados', Number(k.no_titulados)],
         ['% Titulados', +((k.titulados / total) * 100).toFixed(2)],
         ['% En Trámite', +((k.en_tramite / total) * 100).toFixed(2)],
         ['% No Titulados', +((k.no_titulados / total) * 100).toFixed(2)],
@@ -1075,7 +1101,7 @@ export class ExportEstadisticasService {
       const ws = addSheet('Posgrado', 2, 'Egresados con Posgrado');
       ws.columns = [{ key: 'tipo', width: 34 }, { key: 't', width: 15 }];
       this.excelTable(ws, ['Tipo de Posgrado', 'Total'],
-        (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', r.total]),
+        (data.posgradoPorTipo || []).map((r: any) => [r.tipo_posgrado || '—', Number(r.total)]),
         4,
       );
     }
@@ -1099,10 +1125,10 @@ export class ExportEstadisticasService {
           '% Titulados', '% En Trámite', '% No Titulados'],
         (data.titulacionCarrera || []).map((r: any) => [
           r.nombre_carrera,
-          r.total,
-          r.titulados,
-          r.en_tramite,
-          r.no_titulados,
+          Number(r.total),
+          Number(r.titulados),
+          Number(r.en_tramite),
+          Number(r.no_titulados),
           +(+(r.pct_titulados) || 0).toFixed(2),
           +(+(r.pct_en_tramite) || 0).toFixed(2),
           +(+(r.pct_no_titulados) || 0).toFixed(2),
@@ -1129,9 +1155,9 @@ export class ExportEstadisticasService {
           .sort((a: any, b: any) => Number(a.anio_egreso) - Number(b.anio_egreso))
           .map((r: any) => [
             r.anio_egreso,
-            r.total,
-            r.titulados,
-            r.en_tramite,
+            Number(r.total),
+            Number(r.titulados),
+            Number(r.en_tramite),
             r.no_titulados ?? 0,
             +(+(r.pct_titulados) || 0).toFixed(2),
           ]),
@@ -1157,10 +1183,45 @@ export class ExportEstadisticasService {
           .sort((a: any, b: any) => Number(a.anio_ingreso) - Number(b.anio_ingreso))
           .map((r: any) => [
             r.anio_ingreso,
-            r.total,
-            r.titulados,
-            r.en_tramite,
-            r.no_titulados ?? 0,
+            Number(r.total),
+            Number(r.titulados),
+            Number(r.en_tramite),
+            Number(r.no_titulados ?? 0),
+            +(+(r.pct_titulados) || 0).toFixed(2),
+          ]),
+        4,
+      );
+    }
+
+    // 4b2) Titulación por Cohorte y Semestre de Ingreso
+    if ((data.titulacionCohorteSemestre || []).length > 0) {
+      const ordenPeriodo = (p: string) =>
+        p === 'Enero - Junio' ? 0 : p === 'Agosto - Diciembre' ? 1 : 2;
+      const ws = addSheet('Cohorte y Semestre', 7, 'Titulación por Cohorte y Semestre de Ingreso');
+      ws.columns = [
+        { key: 'a', width: 14 },
+        { key: 's', width: 20 },
+        { key: 't', width: 12 },
+        { key: 'tt', width: 14 },
+        { key: 'tr', width: 14 },
+        { key: 'nt', width: 16 },
+        { key: 'p', width: 16 },
+      ];
+      this.excelTable(
+        ws,
+        ['Año de ingreso', 'Semestre', 'Total', 'Titulados', 'En Trámite', 'No Titulados', '% Titulados'],
+        [...(data.titulacionCohorteSemestre || [])]
+          .sort((a: any, b: any) =>
+            Number(a.anio_ingreso) - Number(b.anio_ingreso) ||
+            ordenPeriodo(a.periodo_ingreso) - ordenPeriodo(b.periodo_ingreso),
+          )
+          .map((r: any) => [
+            Number(r.anio_ingreso),
+            r.periodo_ingreso,
+            Number(r.total),
+            Number(r.titulados),
+            Number(r.en_tramite),
+            Number(r.no_titulados ?? 0),
             +(+(r.pct_titulados) || 0).toFixed(2),
           ]),
         4,
@@ -1190,10 +1251,10 @@ export class ExportEstadisticasService {
           .map((r: any) => [
             r.nombre_carrera,
             r.anio_egreso,
-            r.total,
-            r.titulados,
-            r.en_tramite,
-            r.no_titulados ?? 0,
+            Number(r.total),
+            Number(r.titulados),
+            Number(r.en_tramite),
+            Number(r.no_titulados ?? 0),
             +(+(r.pct_titulados) || 0).toFixed(2),
           ]),
         4,
