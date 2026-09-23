@@ -3329,11 +3329,63 @@ export class ExportEstadisticasService {
     return row + 1;
   }
 
+  // Ayuda para Trayectoria: si el arreglo llegó a completar el límite (p.ej.
+  // 10), sí hubo corte por LIMIT en la consulta y el título debe decir
+  // "Top N <nombre>"; si trajo menos, son todos los valores existentes y el
+  // prefijo "Top N" sería engañoso.
+  private tituloTop(nombre: string, filas: unknown[], limite = 10): string {
+    return filas.length >= limite ? `Top ${limite} ${nombre}` : nombre;
+  }
+
+  // Pie de página de Trayectoria con numeración de página. Igual que en
+  // src/inclusion/export/export-inclusion.service.ts: la posición se calcula
+  // desde doc.page.height (nunca una coordenada fija) y margins.bottom se
+  // pone en 0 mientras se escribe, porque si no PDFKit detecta el texto
+  // fuera del área de contenido y agrega una página en blanco por cada pie.
+  private pdfFooterTrayectoria(doc: any, fecha: string, pageNum: number, totalPages: number): void {
+    const originalBottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    try {
+      const footerY = doc.page.height - 40;
+      const usableWidth = doc.page.width - MARGIN_X * 2;
+      const colWidth = usableWidth / 3;
+      doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
+        .text(`Generado el ${fecha}`, MARGIN_X, footerY, { width: colWidth, align: 'left', lineBreak: false });
+      doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
+        .text(`Página ${pageNum} de ${totalPages}`, MARGIN_X + colWidth, footerY, { width: colWidth, align: 'center', lineBreak: false });
+      doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
+        .text('Sistema de Seguimiento de Egresados — ITD', MARGIN_X + colWidth * 2, footerY, { width: colWidth, align: 'right', lineBreak: false });
+    } finally {
+      doc.page.margins.bottom = originalBottom;
+    }
+  }
+
+  // Recorre bufferedPageRange() y dibuja el pie en cada página ya generada.
+  // El documento debe haberse creado con { bufferPages: true }. La
+  // aserción final es para que, si vuelve a aparecer la página en blanco,
+  // el error salga aquí y no como un PDF corrupto en producción.
+  private pdfFooterAllPagesTrayectoria(doc: any, fecha: string): void {
+    const range = doc.bufferedPageRange();
+    const paginasAntes = range.count;
+    for (let i = range.start; i < range.start + range.count; i++) {
+      doc.switchToPage(i);
+      this.pdfFooterTrayectoria(doc, fecha, i + 1, paginasAntes);
+    }
+    const paginasDespues = doc.bufferedPageRange().count;
+    if (paginasDespues !== paginasAntes) {
+      throw new Error(`pdfFooterAllPagesTrayectoria: se esperaban ${paginasAntes} páginas pero quedaron ${paginasDespues} después de escribir el pie.`);
+    }
+  }
+
   async exportarTrayectoriaPdf(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getTrayectoria(carrera, anio);
     const fecha = this.fechaStr();
     const filtros = this.filtroDesc(carrera, anio);
-    const doc = this.pdfDoc();
+    const doc = new PDFDocument({
+      size: 'A4', layout: 'landscape',
+      margins: { top: 50, bottom: 40, left: MARGIN_X, right: MARGIN_X },
+      bufferPages: true,
+    });
     const bufPromise = this.collectBuffer(doc);
     const onNewPage = () => this.pdfNewPage(doc);
 
@@ -3382,7 +3434,7 @@ export class ExportEstadisticasService {
     );
 
     // 4) Top instituciones
-    y = this.pdfSection(doc, 'Top 10 Instituciones', y, onNewPage);
+    y = this.pdfSection(doc, this.tituloTop('Instituciones', data.topInstituciones || []), y, onNewPage);
     y = this.pdfTable(
       doc,
       ['Institución', 'Total'],
@@ -3415,7 +3467,7 @@ export class ExportEstadisticasService {
     );
 
     // 7) Top giros
-    y = this.pdfSection(doc, 'Top 10 Giros de Emprendimiento', y, onNewPage);
+    y = this.pdfSection(doc, this.tituloTop('Giros de Emprendimiento', data.topGiros || []), y, onNewPage);
     y = this.pdfTable(
       doc,
       ['Giro', 'Total'],
@@ -3463,7 +3515,7 @@ export class ExportEstadisticasService {
     );
 
     // 11) Top organizaciones
-    y = this.pdfSection(doc, 'Top 10 Organizaciones', y, onNewPage);
+    y = this.pdfSection(doc, this.tituloTop('Organizaciones', data.topOrganizaciones || []), y, onNewPage);
     y = this.pdfTable(
       doc,
       ['Organización', 'Total'],
@@ -3472,7 +3524,7 @@ export class ExportEstadisticasService {
     );
 
     // 12) Top empresas del primer empleo
-    y = this.pdfSection(doc, 'Top 10 Empresas del Primer Empleo', y, onNewPage);
+    y = this.pdfSection(doc, this.tituloTop('Empresas del Primer Empleo', data.topEmpresasPrimerEmpleo || []), y, onNewPage);
     y = this.pdfTable(
       doc,
       ['Empresa', 'Total'],
@@ -3481,7 +3533,7 @@ export class ExportEstadisticasService {
     );
 
     // 13) Top puestos del primer empleo
-    y = this.pdfSection(doc, 'Top 10 Puestos del Primer Empleo', y, onNewPage);
+    y = this.pdfSection(doc, this.tituloTop('Puestos del Primer Empleo', data.topPuestosPrimerEmpleo || []), y, onNewPage);
     y = this.pdfTable(
       doc,
       ['Puesto', 'Total'],
@@ -3489,7 +3541,7 @@ export class ExportEstadisticasService {
       [340, 120], MARGIN_X, y, onNewPage,
     );
 
-    this.pdfFooter(doc, fecha);
+    this.pdfFooterAllPagesTrayectoria(doc, fecha);
     doc.end();
     return bufPromise;
   }
@@ -3502,13 +3554,16 @@ export class ExportEstadisticasService {
 
     const k = data.kpis;
     const total = Number(k.total_egresados) || 1;
-    const pct = (n: any) => +((Number(n) / total) * 100).toFixed(2);
+    // Redondeo a 1 decimal (no toFixed: devuelve string) para que coincida
+    // con el resto del reporte (PDF y columnas "%" por carrera), que usan
+    // 1 decimal en vez de los 2 que traía esta hoja.
+    const pct = (n: any) => Math.round((Number(n) / total) * 1000) / 10;
 
     // 1) Indicadores
     {
       const ws = addSheet('Indicadores', 2, 'Indicadores de Trayectoria');
       ws.columns = [{ key: 'ind', width: 32 }, { key: 'val', width: 18 }];
-      this.excelTable(ws, ['Indicador', 'Valor'], [
+      const indicadoresRows: [string, number][] = [
         ['Total Egresados', Number(k.total_egresados)],
         ['Con Estudios Posteriores', Number(k.con_estudios_posteriores)],
         ['% Con Estudios Posteriores', pct(k.con_estudios_posteriores)],
@@ -3519,7 +3574,13 @@ export class ExportEstadisticasService {
         ['% Con Proyecto Social', pct(k.con_proyecto_social)],
         ['Con Certificaciones', Number(k.con_certificaciones)],
         ['% Con Certificaciones', pct(k.con_certificaciones)],
-      ], 4);
+      ];
+      this.excelTable(ws, ['Indicador', 'Valor'], indicadoresRows, 4);
+      indicadoresRows.forEach(([label], idx) => {
+        if (label.startsWith('%')) {
+          ws.getRow(5 + idx).getCell(2).numFmt = '0.0';
+        }
+      });
     }
 
     // 2) Estudios
@@ -3533,7 +3594,7 @@ export class ExportEstadisticasService {
       row = this.excelSubheading(ws, 'Estudios por Estado', 4, row);
       row = this.excelTable(ws, ['Estado', 'Total'],
         (data.estudiosPorEstado || []).map((r: any) => [r.estado, Number(r.total)]), row) + 1;
-      row = this.excelSubheading(ws, 'Top 10 Instituciones', 4, row);
+      row = this.excelSubheading(ws, this.tituloTop('Instituciones', data.topInstituciones || []), 4, row);
       row = this.excelTable(ws, ['Institución', 'Total'],
         (data.topInstituciones || []).map((r: any) => [r.institucion, Number(r.total)]), row) + 1;
       row = this.excelSubheading(ws, 'Estudios por Carrera', 4, row);
@@ -3552,7 +3613,7 @@ export class ExportEstadisticasService {
       row = this.excelSubheading(ws, 'Emprendimiento por Rango de Empleados', 4, row);
       row = this.excelTable(ws, ['Rango de Empleados', 'Total'],
         (data.emprendimientoPorRango || []).map((r: any) => [r.rango, Number(r.total)]), row) + 1;
-      row = this.excelSubheading(ws, 'Top 10 Giros', 4, row);
+      row = this.excelSubheading(ws, this.tituloTop('Giros', data.topGiros || []), 4, row);
       row = this.excelTable(ws, ['Giro', 'Total'],
         (data.topGiros || []).map((r: any) => [r.giro, Number(r.total)]), row) + 1;
       row = this.excelSubheading(ws, 'Emprendimiento por Carrera', 4, row);
@@ -3577,7 +3638,7 @@ export class ExportEstadisticasService {
           r.nombre_carrera, Number(r.total_egresados), Number(r.con_proyecto),
           +(+(r.pct) || 0).toFixed(2),
         ]), row) + 1;
-      row = this.excelSubheading(ws, 'Top 10 Organizaciones', 4, row);
+      row = this.excelSubheading(ws, this.tituloTop('Organizaciones', data.topOrganizaciones || []), 4, row);
       row = this.excelTable(ws, ['Organización', 'Total'],
         (data.topOrganizaciones || []).map((r: any) => [r.organizacion, Number(r.total)]), row);
     }
@@ -3587,10 +3648,10 @@ export class ExportEstadisticasService {
       const ws = addSheet('Primer Empleo', 2, 'Primer Empleo');
       ws.columns = [{ width: 38 }, { width: 16 }];
       let row = 4;
-      row = this.excelSubheading(ws, 'Top 10 Empresas', 2, row);
+      row = this.excelSubheading(ws, this.tituloTop('Empresas', data.topEmpresasPrimerEmpleo || []), 2, row);
       row = this.excelTable(ws, ['Empresa', 'Total'],
         (data.topEmpresasPrimerEmpleo || []).map((r: any) => [r.empresa, Number(r.total)]), row) + 1;
-      row = this.excelSubheading(ws, 'Top 10 Puestos', 2, row);
+      row = this.excelSubheading(ws, this.tituloTop('Puestos', data.topPuestosPrimerEmpleo || []), 2, row);
       row = this.excelTable(ws, ['Puesto', 'Total'],
         (data.topPuestosPrimerEmpleo || []).map((r: any) => [r.puesto, Number(r.total)]), row);
     }
