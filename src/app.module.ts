@@ -37,6 +37,7 @@ import { NivelesEstudioModule } from './niveles-estudio/niveles-estudio.module';
 import { EstadosEstudioModule } from './estados-estudio/estados-estudio.module';
 import { TiposProyectoSocialModule } from './tipos-proyecto-social/tipos-proyecto-social.module';
 import { RangosEmpleadosModule } from './rangos-empleados/rangos-empleados.module';
+import { DuplicadosModule } from './duplicados/duplicados.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { RangosEmpleadosModule } from './rangos-empleados/rangos-empleados.modul
     DashboardModule,
     MailModule,
     InclusionModule,
+    DuplicadosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
