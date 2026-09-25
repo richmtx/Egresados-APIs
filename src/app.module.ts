@@ -53,7 +53,11 @@ import { DuplicadosModule } from './duplicados/duplicados.module';
       database: process.env.DB_NAME,
       autoLoadEntities: true,
       synchronize: false,
-      timezone: 'Z',
+      // NO cambiar a 'Z'. MySQL guarda las fechas (DATETIME, y TIMESTAMP ya
+      // convertido por la sesión) en hora local del servidor, America/Mexico_City.
+      // El driver debe leerlas igual; con 'Z' las toma como UTC y todas salen
+      // corridas 6 h (lo registrado entre 00:00 y 06:00 aparece en el día anterior).
+      timezone: 'local',
     }),
 
     // Registro de módulos
