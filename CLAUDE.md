@@ -82,8 +82,10 @@ POST /usuarios/login
 
 **Respuesta 401:** `"Usuario o contraseña incorrectos"` (también si el usuario está `inactivo`).
 
-> El body está tipado en línea (sin DTO): si falta `usuario` o `contrasena`
-> la respuesta es **`500`**, no 400/401 (`bcrypt.compare` recibe `undefined`).
+> El body está tipado en línea (sin DTO) y se valida a mano: sin body, con
+> `{}` o sin `usuario`/`contrasena` (o si no son string) responde **`401`**
+> con el mismo mensaje genérico. El mensaje nunca distingue "falta el
+> usuario", "no existe" o "contraseña incorrecta".
 
 **Payload del token:** `{ sub: id_usuario, usuario, nombre_completo, rol }`.
 `JwtStrategy` expone en `req.user` solo `{ id_usuario, usuario, rol }`.
@@ -1843,8 +1845,12 @@ interface Usuario {
 GET /usuarios/:id
 ```
 
-**Auth:** Cualquier usuario autenticado
-**Respuesta 200:** Objeto `Usuario` **incluyendo** `contrasena` (hash bcrypt): este método no la filtra. Si no existe, `200` con cuerpo vacío.
+**Auth:** `admin` puede consultar cualquier id. Cualquier otro rol solo su
+propio id (el `sub` del token); otro id → `403`.
+**Respuesta 200:** Objeto `Usuario` (sin `contrasena`). Si no existe, `200` con cuerpo vacío.
+
+> `contrasena` nunca sale de la API: la columna es `select: false` en la
+> entidad y solo el login la pide explícitamente (`addSelect`).
 
 ---
 
@@ -1944,7 +1950,7 @@ interface HistorialActividad {
   descripcion: string;
   seccion: string;
   fecha_accion: string;
-  usuario: Usuario & { contrasena: string };  // la relación NO filtra contrasena (hash)
+  usuario: Usuario;  // sin contrasena (select: false)
 }
 ```
 
@@ -2075,7 +2081,7 @@ Si `foto_url` es `null`, el egresado no subió foto.
 | `GET /notificaciones/*` | — | ✓ | ✓ |
 | `PATCH /notificaciones/*` | — | ✓ | ✓ |
 | `DELETE /notificaciones/*` | — | ✓ | ✓ |
-| `GET /usuarios/:id` | — | ✓ | ✓ |
+| `GET /usuarios/:id` | — | solo su id | ✓ |
 | `POST /usuarios/historial` | — | ✓ | ✓ |
 | `PATCH /egresados/:id/revisado` | — | — | ✓ |
 | `DELETE /egresados/:id` | — | — | ✓ |

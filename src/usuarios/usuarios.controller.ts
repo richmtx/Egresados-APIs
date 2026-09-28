@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Delete,
-  Param, Body, Req, UnauthorizedException, BadRequestException,
+  Param, Body, Req, UnauthorizedException, BadRequestException, ForbiddenException,
   ParseIntPipe, Query, UseGuards,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -54,17 +54,28 @@ export class UsuariosController {
     return { ok: true };
   }
 
+  // Admin: cualquier usuario. Resto: solo su propio id (el del token).
   @UseGuards(JwtAuthGuard)
   @Get(':id')
-  async getUsuario(@Param('id', ParseIntPipe) id: number) {
+  async getUsuario(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    if (req.user.rol !== 'admin' && Number(req.user.id_usuario) !== id)
+      throw new ForbiddenException('No tienes permiso para consultar este usuario.');
     return this.usuariosService.findOne(id);
   }
 
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
-  async login(@Body() body: { usuario: string; contrasena: string }) {
-    const user = await this.usuariosService.login(body.usuario, body.contrasena);
+  async login(@Body() body: { usuario: string; contrasena: string } | undefined) {
+    // Express 5 deja el body en undefined si no hubo body parseable. Un body
+    // incompleto responde igual que un login fallido: el mensaje no debe
+    // distinguir "falta el usuario" de "no existe" o "contraseña incorrecta".
+    const usuario = body?.usuario;
+    const contrasena = body?.contrasena;
+    if (typeof usuario !== 'string' || typeof contrasena !== 'string' || !usuario || !contrasena)
+      throw new UnauthorizedException('Usuario o contraseña incorrectos');
+
+    const user = await this.usuariosService.login(usuario, contrasena);
     if (!user) throw new UnauthorizedException('Usuario o contraseña incorrectos');
 
     const payload = { sub: user.id_usuario, usuario: user.usuario, nombre_completo: user.nombre_completo, rol: user.rol };

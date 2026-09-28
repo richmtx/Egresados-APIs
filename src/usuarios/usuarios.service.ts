@@ -22,12 +22,18 @@ export class UsuariosService {
     return usuarios.map(({ contrasena, ...u }) => u);
   }
 
+  // Sin contrasena: la columna es select: false.
   async findOne(id: number): Promise<Usuario | null> {
     return this.usuariosRepository.findOneBy({ id_usuario: id });
   }
 
   async login(usuario: string, contrasena: string): Promise<Omit<Usuario, 'contrasena'> | null> {
-    const user = await this.usuariosRepository.findOneBy({ usuario });
+    // Único lugar que necesita el hash: la columna es select: false.
+    const user = await this.usuariosRepository
+      .createQueryBuilder('u')
+      .addSelect('u.contrasena')
+      .where('u.usuario = :usuario', { usuario })
+      .getOne();
     if (!user || user.estado === 'inactivo') return null;
 
     const esBcrypt = user.contrasena.startsWith('$2b$') || user.contrasena.startsWith('$2a$');

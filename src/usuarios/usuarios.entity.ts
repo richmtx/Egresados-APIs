@@ -12,7 +12,9 @@ export class Usuario {
   @Column({ name: 'nombre_completo' })
   nombre_completo: string;
 
-  @Column()
+  // select: false → el hash nunca sale en find/findOne/relations. Solo el
+  // login lo pide explícitamente con addSelect.
+  @Column({ select: false })
   contrasena: string;
 
   @Column({ type: 'enum', enum: ['admin', 'invitado'], default: 'invitado' })
