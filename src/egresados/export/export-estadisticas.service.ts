@@ -949,8 +949,8 @@ export class ExportEstadisticasService {
       [260, 160], MARGIN_X, y, onNewPage,
     );
 
-    // 2) Egresados con Posgrado (solo sin filtro de carrera: la consulta no filtra por carrera)
-    if (!carrera && (data.posgradoPorTipo || []).length > 0) {
+    // 2) Egresados con Posgrado
+    if ((data.posgradoPorTipo || []).length > 0) {
       y = this.pdfSection(doc, 'Egresados con Posgrado', y, onNewPage);
       y = this.pdfTable(
         doc,
@@ -1096,8 +1096,8 @@ export class ExportEstadisticasService {
       ], 4);
     }
 
-    // 2) Egresados con Posgrado (solo sin filtro de carrera: la consulta no filtra por carrera)
-    if (!carrera) {
+    // 2) Egresados con Posgrado
+    {
       const ws = addSheet('Posgrado', 2, 'Egresados con Posgrado');
       ws.columns = [{ key: 'tipo', width: 34 }, { key: 't', width: 15 }];
       this.excelTable(ws, ['Tipo de Posgrado', 'Total'],
@@ -2732,7 +2732,7 @@ export class ExportEstadisticasService {
     );
 
     // 13) ¿Quién Continúa Estudiando?
-    if (!carrera) {
+    {
       y = this.pdfSection(doc, '¿Quién Continúa Estudiando? (Posgrado)', y, onNewPage);
       y = this.pdfTable(
         doc,
@@ -2743,7 +2743,7 @@ export class ExportEstadisticasService {
     }
 
     // 14) Tipo de Posgrado por Género
-    if (!carrera) {
+    {
       y = this.pdfSection(doc, 'Tipo de Posgrado por Género', y, onNewPage);
       y = this.pdfTable(
         doc,
@@ -2822,8 +2822,8 @@ export class ExportEstadisticasService {
       }
     }
 
-    // Posgrado — solo sin filtro de carrera
-    if (!carrera) {
+    // Posgrado
+    {
       const posG = data.posgradoGenero || [];
       if (posG.length >= 2) {
         const sorted = [...posG].sort((a: any, b: any) => +(b.total) - +(a.total));
@@ -3131,17 +3131,17 @@ export class ExportEstadisticasService {
     }
 
     // 13) ¿Quién Continúa Estudiando?
-    if (!carrera) {
+    {
       const ws = addSheet('Quien Estudia Posgrado', 2, '¿Quién Continúa Estudiando? (Posgrado)');
       ws.columns = [{ key: 'g', width: 20 }, { key: 't', width: 20 }];
       this.excelTable(ws, ['Género', 'Total en Posgrado'],
-        (data.posgradoGenero || []).map((r: any) => [r.genero, r.total]),
+        (data.posgradoGenero || []).map((r: any) => [r.genero, Number(r.total)]),
         4,
       );
     }
 
     // 14) Tipo de Posgrado por Género
-    if (!carrera) {
+    {
       const ws = addSheet('Tipo de Posgrado', 4, 'Tipo de Posgrado por Género');
       ws.columns = [
         { key: 'g', width: 20 }, { key: 'tp', width: 30 },
@@ -3149,7 +3149,7 @@ export class ExportEstadisticasService {
       ];
       this.excelTable(ws, ['Género', 'Tipo de Posgrado', 'Total', 'Porcentaje (%)'],
         (data.posgradoTipoGenero || []).map((r: any) => [
-          r.genero, r.tipo_posgrado || '—', r.total,
+          r.genero, r.tipo_posgrado || '—', Number(r.total),
           +(+(r.porcentaje) || 0).toFixed(2),
         ]),
         4,
@@ -3241,8 +3241,8 @@ export class ExportEstadisticasService {
         }
       }
 
-      // Posgrado — solo sin filtro de carrera
-      if (!carrera) {
+      // Posgrado
+      {
         const posG = data.posgradoGenero || [];
         if (posG.length >= 2) {
           const sorted = [...posG].sort((a: any, b: any) => +(b.total) - +(a.total));

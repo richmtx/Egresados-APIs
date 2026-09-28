@@ -1122,6 +1122,8 @@ export class EgresadosService {
     `, params);
 
     // 14. Coincidencia laboral por carrera
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const coincidenciaCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -1132,7 +1134,6 @@ export class EgresadosService {
       LEFT JOIN carreras             c  ON e.carrera_id             = c.id_carrera
       LEFT JOIN coincidencia_laboral cl ON e.coincidencia_laboral_id = cl.id_coincidencia
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera, cl.nivel
       ORDER BY c.nombre_carrera, total DESC
     `, params);
@@ -1216,6 +1217,8 @@ export class EgresadosService {
     // TITULACIÓN
 
     // 17. Titulación por carrera
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const titulacionCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -1229,38 +1232,40 @@ export class EgresadosService {
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera
       ORDER BY pct_titulados DESC
     `, params);
 
     // 18. Egresados con posgrado
-    const posgradoParams: any[] = [];
-    const posgradoConditions: string[] = ['e.carrera_id IN (15, 16)'];
-    if (anio) {
-      posgradoConditions.push(`e.anio_egreso = ?`);
-      posgradoParams.push(anio);
-    }
-    const posgradoWhere = `WHERE ${posgradoConditions.join(' AND ')}`;
-
-    const posgradoPorTipo = await this.dataSource.query(`
+    // Posgrado = al menos un estudio posterior de nivel especialidad, maestría
+    // o doctorado (cualquier estado). El diplomado no cuenta como posgrado.
+    const posgradoPorTipo = (await this.dataSource.query(`
       SELECT
-        c.nombre_carrera AS tipo_posgrado,
-        COUNT(*)         AS total
+        ne.descripcion                AS tipo_posgrado,
+        COUNT(DISTINCT e.id_egresado) AS total
       FROM egresados e
-      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-      ${posgradoWhere}
-      GROUP BY c.nombre_carrera
-      ORDER BY total DESC
-    `, posgradoParams);
+      JOIN egresado_estudios es ON es.id_egresado      = e.id_egresado
+      JOIN niveles_estudio   ne ON es.id_nivel_estudio = ne.id_nivel_estudio
+      LEFT JOIN carreras     c  ON e.carrera_id        = c.id_carrera
+      ${where}
+      AND ${this.nivelesPosgrado}
+      GROUP BY ne.id_nivel_estudio, ne.descripcion, ne.orden
+      ORDER BY ne.orden ASC
+    `, params)).map((r: any) => ({ ...r, total: Number(r.total) }));
 
-    const [totalPosgrado] = await this.dataSource.query(`
-      SELECT COUNT(*) AS total
+    const [totalPosgrado] = (await this.dataSource.query(`
+      SELECT COUNT(DISTINCT e.id_egresado) AS total
       FROM egresados e
-      ${posgradoWhere}
-    `, posgradoParams);
+      JOIN egresado_estudios es ON es.id_egresado      = e.id_egresado
+      JOIN niveles_estudio   ne ON es.id_nivel_estudio = ne.id_nivel_estudio
+      LEFT JOIN carreras     c  ON e.carrera_id        = c.id_carrera
+      ${where}
+      AND ${this.nivelesPosgrado}
+    `, params)).map((r: any) => ({ total: Number(r.total) }));
 
     // 19. Titulación por carrera y año
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const titulacionCarreraAnio = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -1273,7 +1278,6 @@ export class EgresadosService {
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera, e.anio_egreso
       ORDER BY c.nombre_carrera ASC, e.anio_egreso ASC
     `, params);
@@ -1439,6 +1443,8 @@ export class EgresadosService {
     `, params);
 
     // 6. Movilidad por carrera
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const movilidadPorCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -1458,7 +1464,6 @@ export class EgresadosService {
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera
       ORDER BY pct_fuera_durango DESC
     `, params);
@@ -1734,6 +1739,11 @@ export class EgresadosService {
     END
   `;
 
+  // "Tiene posgrado": niveles por clave, nunca por id. El diplomado es
+  // educación continua y queda fuera. Requiere el alias ne = niveles_estudio.
+  private readonly nivelesPosgrado =
+    `ne.clave IN ('especialidad', 'maestria', 'doctorado')`;
+
   // ── ESTADÍSTICAS DE GÉNERO ────────────────────────────────────────────────
   async getEstadisticasGenero(carrera?: string, anio?: number): Promise<any> {
 
@@ -1760,6 +1770,8 @@ export class EgresadosService {
     `, params);
 
     // ── 2. Proporción H/M por carrera (para KPIs de carrera más femenina/masculina) ──
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const proporcionCarreraGenero = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -1773,7 +1785,6 @@ export class EgresadosService {
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       LEFT JOIN generos  g ON e.genero_id  = g.id_genero
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera, g.genero
       ORDER BY c.nombre_carrera, g.genero
     `, params);
@@ -1797,6 +1808,8 @@ export class EgresadosService {
     `, params);
 
     // ── 4. Composición H/M por carrera (barras 100% apiladas) ────────────
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const composicionCarreraGenero = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -1810,7 +1823,6 @@ export class EgresadosService {
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       LEFT JOIN generos  g ON e.genero_id  = g.id_genero
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera, g.genero
       ORDER BY c.nombre_carrera, g.genero
     `, params);
@@ -1949,6 +1961,8 @@ export class EgresadosService {
     `, params);
 
     // ── 11. Titulación global por género ──────────────────────────────────
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const titulacionGenero = await this.dataSource.query(`
       SELECT
         ${this.generoCase}                                                    AS genero,
@@ -1963,11 +1977,12 @@ export class EgresadosService {
       LEFT JOIN generos  g ON e.genero_id  = g.id_genero
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY g.genero
     `, params);
 
     // ── 12. Titulación por año × género ───────────────────────────────────
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const titulacionAnioGenero = await this.dataSource.query(`
       SELECT
         e.anio_egreso,
@@ -1981,45 +1996,54 @@ export class EgresadosService {
       LEFT JOIN generos  g ON e.genero_id  = g.id_genero
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
       ${where}
-      AND e.carrera_id NOT IN (15, 16)
       GROUP BY e.anio_egreso, g.genero
       ORDER BY e.anio_egreso ASC, g.genero
     `, params);
 
     // ── 13. Posgrado por género ───────────────────────────────────────────
-    // No aplica filtro de carrera porque el posgrado IS carrera_id IN (15,16)
-    const posgradoParams: any[] = [];
-    const posgradoConditions: string[] = ['e.carrera_id IN (15, 16)'];
-    if (anio) { posgradoConditions.push(`e.anio_egreso = ?`); posgradoParams.push(anio); }
-    const posgradoWhere = `WHERE ${posgradoConditions.join(' AND ')}`;
-
-    const posgradoGenero = await this.dataSource.query(`
+    // Personas distintas con al menos un estudio de posgrado (ver nivelesPosgrado).
+    // El filtro de carrera aplica sobre la carrera del egresado.
+    const posgradoGenero = (await this.dataSource.query(`
       SELECT
         ${this.generoCase}                                                    AS genero,
-        COUNT(*)                                                              AS total
+        COUNT(DISTINCT e.id_egresado)                                         AS total
       FROM egresados e
-      LEFT JOIN generos g ON e.genero_id = g.id_genero
-      ${posgradoWhere}
+      JOIN egresado_estudios es ON es.id_egresado      = e.id_egresado
+      JOIN niveles_estudio   ne ON es.id_nivel_estudio = ne.id_nivel_estudio
+      LEFT JOIN generos      g  ON e.genero_id         = g.id_genero
+      LEFT JOIN carreras     c  ON e.carrera_id        = c.id_carrera
+      ${where}
+      AND ${this.nivelesPosgrado}
       GROUP BY g.genero
-    `, posgradoParams);
+      ORDER BY g.genero
+    `, params)).map((r: any) => ({ ...r, total: Number(r.total) }));
 
     // ── 14. Posgrado por tipo y género ────────────────────────────────────
-    const posgradoTipoGenero = await this.dataSource.query(`
+    // Una persona con dos niveles cuenta en ambos; la suma por género puede
+    // superar al total de posgradoGenero.
+    const posgradoTipoGenero = (await this.dataSource.query(`
       SELECT
         ${this.generoCase}                                                    AS genero,
-        c.nombre_carrera                                                      AS tipo_posgrado,
-        COUNT(*)                                                              AS total,
+        ne.descripcion                                                        AS tipo_posgrado,
+        COUNT(DISTINCT e.id_egresado)                                         AS total,
         ROUND(
-          COUNT(*) * 100.0
-          / SUM(COUNT(*)) OVER (PARTITION BY g.genero), 1
+          COUNT(DISTINCT e.id_egresado) * 100.0
+          / SUM(COUNT(DISTINCT e.id_egresado)) OVER (PARTITION BY g.genero), 1
         )                                                                     AS porcentaje
       FROM egresados e
-      LEFT JOIN generos  g ON e.genero_id  = g.id_genero
-      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
-      ${posgradoWhere}
-      GROUP BY g.genero, c.nombre_carrera
-      ORDER BY g.genero, total DESC
-    `, posgradoParams);
+      JOIN egresado_estudios es ON es.id_egresado      = e.id_egresado
+      JOIN niveles_estudio   ne ON es.id_nivel_estudio = ne.id_nivel_estudio
+      LEFT JOIN generos      g  ON e.genero_id         = g.id_genero
+      LEFT JOIN carreras     c  ON e.carrera_id        = c.id_carrera
+      ${where}
+      AND ${this.nivelesPosgrado}
+      GROUP BY g.genero, ne.id_nivel_estudio, ne.descripcion, ne.orden
+      ORDER BY g.genero, ne.orden ASC
+    `, params)).map((r: any) => ({
+      ...r,
+      total: Number(r.total),
+      porcentaje: Number(r.porcentaje),
+    }));
 
     // ── 15. Nivel de inglés por género ────────────────────────────────────
     const inglesGenero = await this.dataSource.query(`

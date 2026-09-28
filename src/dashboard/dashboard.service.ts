@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 
+// Mínimo de egresados para que un grupo (carrera, año) compita en los destacados
+// que se deciden por porcentaje. Con menos de 10 el porcentaje no es
+// representativo: una carrera de 1 egresado empleado saca 100% y le gana a una
+// de 60. Se devuelve al panel como minimo_aplicado para que el umbral sea visible.
+export const MIN_EGRESADOS_RANKING = 10;
+
 @Injectable()
 export class DashboardService {
 
@@ -169,20 +175,25 @@ export class DashboardService {
     `);
 
     // 12. Top destacados
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
+    // Solo compiten grupos con MIN_EGRESADOS_RANKING o más; a igual porcentaje
+    // gana el grupo más grande.
     const [carreraTopEmpleo] = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
         ROUND(
           SUM(sl.situacion != 'Desempleado') * 100.0 / COUNT(*), 1
-        ) AS pct_empleados
+        ) AS pct_empleados,
+        COUNT(*) AS total_egresados
       FROM egresados e
       LEFT JOIN carreras c          ON e.carrera_id           = c.id_carrera
       LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
-      WHERE e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera
-      ORDER BY pct_empleados DESC
+      HAVING COUNT(*) >= ?
+      ORDER BY pct_empleados DESC, total_egresados DESC
       LIMIT 1
-    `);
+    `, [MIN_EGRESADOS_RANKING]);
 
     const [ciudadTopTrabajo] = await this.dataSource.query(`
       SELECT
@@ -207,20 +218,25 @@ export class DashboardService {
   LIMIT 1
 `);
 
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const [anioTopTitulacion] = await this.dataSource.query(`
       SELECT
         e.anio_egreso,
         ROUND(
           SUM(e.estatus_titulacion = 'Titulado') * 100.0 / COUNT(*), 1
-        ) AS pct_titulados
+        ) AS pct_titulados,
+        COUNT(*) AS total_egresados
       FROM egresados e
-      WHERE e.carrera_id NOT IN (15, 16)
       GROUP BY e.anio_egreso
-      ORDER BY pct_titulados DESC
+      HAVING COUNT(*) >= ?
+      ORDER BY pct_titulados DESC, total_egresados DESC
       LIMIT 1
-    `);
+    `, [MIN_EGRESADOS_RANKING]);
 
     // 13. Tabla resumen por carrera
+    // Sin excluir carreras 15/16: son ingenierías normales (Gestión Empresarial y TIC's),
+    // no posgrados. El posgrado se determina desde egresado_estudios.
     const resumenCarrera = await this.dataSource.query(`
       SELECT
         c.nombre_carrera,
@@ -235,7 +251,6 @@ export class DashboardService {
       FROM egresados e
       LEFT JOIN carreras          c  ON e.carrera_id           = c.id_carrera
       LEFT JOIN situacion_laboral sl ON e.situacion_laboral_id = sl.id_situacion
-      WHERE e.carrera_id NOT IN (15, 16)
       GROUP BY c.nombre_carrera
       ORDER BY total DESC
     `);
@@ -272,12 +287,22 @@ export class DashboardService {
       },
       pendientesDetalle,
       topDestacados: {
-        carrera_top_empleo: carreraTopEmpleo ?? null,
+        // null si ningún grupo alcanza MIN_EGRESADOS_RANKING
+        carrera_top_empleo: this.conMinimo(carreraTopEmpleo),
         ciudad_top_trabajo: ciudadTopTrabajo ?? null,
         empresa_top: empresaTop ?? null,
-        anio_top_titulacion: anioTopTitulacion ?? null,
+        anio_top_titulacion: this.conMinimo(anioTopTitulacion),
       },
       resumenCarrera,
+    };
+  }
+
+  private conMinimo(destacado: any) {
+    if (!destacado) return null;
+    return {
+      ...destacado,
+      total_egresados: Number(destacado.total_egresados),
+      minimo_aplicado: MIN_EGRESADOS_RANKING,
     };
   }
 }
