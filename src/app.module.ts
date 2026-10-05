@@ -38,6 +38,7 @@ import { EstadosEstudioModule } from './estados-estudio/estados-estudio.module';
 import { TiposProyectoSocialModule } from './tipos-proyecto-social/tipos-proyecto-social.module';
 import { RangosEmpleadosModule } from './rangos-empleados/rangos-empleados.module';
 import { DuplicadosModule } from './duplicados/duplicados.module';
+import { EmpresasModule } from './empresas/empresas.module';
 
 @Module({
   imports: [
@@ -92,6 +93,7 @@ import { DuplicadosModule } from './duplicados/duplicados.module';
     MailModule,
     InclusionModule,
     DuplicadosModule,
+    EmpresasModule,
   ],
   controllers: [AppController],
   providers: [AppService],

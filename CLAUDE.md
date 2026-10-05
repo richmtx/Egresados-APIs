@@ -5,7 +5,7 @@ Backend NestJS. Base URL de desarrollo: `http://localhost:3000`
 > Fuente de verdad: los controladores, DTOs y servicios de `src/`. Si algo
 > de este archivo no coincide con el código, el código gana y hay que
 > corregir este archivo. El inventario exacto de rutas sale del log de
-> arranque (`[RouterExplorer] Mapped {...}`): hoy son **107 rutas**.
+> arranque (`[RouterExplorer] Mapped {...}`): hoy son **113 rutas**.
 
 ---
 
@@ -29,7 +29,7 @@ reportes se arman con `dataSource.query()` crudo, y ahí:
 | `DATETIME` / `TIMESTAMP` | string ISO | `"2026-09-04T07:09:37.000Z"` |
 
 Excepciones documentadas en cada endpoint: los servicios que pasan los
-agregados por `Number()` (dashboard, duplicados, `pendientes-revision`,
+agregados por `Number()` (dashboard, duplicados, empresas, `pendientes-revision`,
 `directorio.total`, filtros) y los endpoints que usan el repositorio de
 TypeORM sobre columnas `boolean` (notificaciones, `GET /autorizaciones`),
 que sí devuelven `true`/`false`.
@@ -149,7 +149,7 @@ protegido declara `@UseGuards(JwtAuthGuard, RolesGuard)`:
 - `@Public()` en un método salta el `JwtAuthGuard`.
 - `RolesGuard` **deja pasar si no hay `@Roles`**. Por eso un endpoint sin
   `@Roles('admin')` es accesible para cualquier usuario autenticado.
-- `/inclusion`, `/duplicados`, `/correo` y seis catálogos llevan
+- `/inclusion`, `/duplicados`, `/admin/empresas`, `/correo` y seis catálogos llevan
   `@Roles('admin')` **a nivel de clase**: todo el controlador es solo admin.
 - Los controladores de catálogo sin guards son públicos.
 
@@ -1579,6 +1579,216 @@ GET /duplicados/fusiones/:id
 
 ---
 
+## Módulo: Empresas
+
+```
+Controlador: @UseGuards(JwtAuthGuard, RolesGuard) + @Roles('admin') a nivel de clase
+Prefijo: /admin/empresas
+```
+
+Normalización de nombres de empresa (migración `013_empresas.sql`).
+
+- **Todo el módulo es solo `admin`.**
+- Los textos `egresados.empresa` y `egresados.primer_empleo_empresa` **nunca se modifican**. La fusión solo llena las FK `empresa_id` y `primer_empleo_empresa_id`, que apuntan al catálogo `empresas`.
+- El detector solo **propone** variantes en `empresas_candidatos`; nunca liga egresados.
+- Estados de un candidato: `pendiente` | `fusionado` | `descartado`. Re-ejecutar el detector nunca pisa una decisión del admin.
+- La clave de agrupación (`nombre_clave`: minúsculas, sin puntos ni comas, sin sufijo societario) se calcula con `claveEmpresaSql()` de `src/common/constants/normalizacion-empresa.ts`, la misma expresión de la columna generada `empresas.nombre_clave`. Las claves se comparan sin distinguir acentos ni mayúsculas; las variantes, de forma exacta (`utf8mb4_0900_as_cs`).
+- Los reportes, el dashboard y los exports **todavía agrupan por el texto crudo**: aún no leen estas FK.
+- Aquí todos los agregados pasan por `Number()`: los conteos llegan como **number**.
+- Respuestas con `Cache-Control: no-store`. Las acciones quedan en el historial (sección `empresas`).
+
+### Ejecutar detección
+
+```
+POST /admin/empresas/detectar
+```
+
+**Auth:** Solo `admin`
+**Body:** ninguno
+
+Junta los textos de `empresa` y `primer_empleo_empresa`, los agrupa por
+clave normalizada y guarda una fila por variante de cada grupo que tenga
+más de un texto distinto. Un grupo puede cruzar columnas. Una variante que
+ya existía solo actualiza sus contadores. Borra los `pendiente` que ya no
+aparecen en los datos.
+
+`nombre_sugerido` = la variante con más ocurrencias totales del grupo; si
+empatan, la más corta; si siguen empatadas, la primera alfabéticamente.
+
+**Respuesta 200:**
+```json
+{
+  "grupos": 12,
+  "grupos_empresa": 11,
+  "grupos_primer_empleo": 1,
+  "variantes": 29,
+  "variantes_nuevas": 29,
+  "variantes_actualizadas": 0,
+  "variantes_respetadas": 0,
+  "variantes_eliminadas": 0,
+  "total_pendientes": 29
+}
+```
+
+`grupos` cuenta las dos columnas juntas; `grupos_empresa` y
+`grupos_primer_empleo` cuentan los grupos con más de un texto dentro de
+cada columna por separado. `variantes_respetadas` = variantes ya revisadas
+(fusionadas o descartadas) que conservaron su estado.
+
+---
+
+### Listar candidatos (agrupados por clave)
+
+```
+GET /admin/empresas/candidatos?estado=pendiente
+```
+
+**Auth:** Solo `admin`
+**Query (DTO `ListarCandidatosEmpresaDto`):** `estado` = `pendiente` (default) | `fusionado` | `descartado`
+
+Solo aparecen las variantes en el estado pedido: un grupo con dos
+fusionadas y una pendiente muestra una variante en `?estado=pendiente`.
+Grupos ordenados por `total_ocurrencias` descendente.
+
+**Respuesta 200:**
+```typescript
+interface ListadoCandidatosEmpresa {
+  grupos: {
+    nombre_clave: string;
+    nombre_sugerido: string;
+    total_ocurrencias: number;
+    variantes: {
+      id_empresa_candidato: number;
+      nombre_variante: string;          // texto crudo, con sus espacios
+      ocurrencias_empresa: number;
+      ocurrencias_primer_empleo: number;
+      estado: 'pendiente' | 'fusionado' | 'descartado';
+      empresa_id: number | null;        // canónico al que se fusionó
+      empresa_nombre: string | null;
+      detectado_en: string;
+      revisado_por: string | null;
+      revisado_en: string | null;
+    }[];
+  }[];
+  total: number;                        // número de grupos
+}
+```
+
+---
+
+### Fusionar variantes en un nombre canónico
+
+```
+POST /admin/empresas/fusionar
+```
+
+**Auth:** Solo `admin`
+
+**Body:**
+```json
+{
+  "nombre_canonico": "Comisión Federal de Electricidad",
+  "variantes": ["CFE", "Comisión Federal de Electricidad", "COMISIÓN FEDERAL DE ELECTRICIDAD"]
+}
+```
+
+| Campo | Tipo | Requerido | Notas |
+|---|---|---|---|
+| `nombre_canonico` | string | ✓ | Máx. 255. Si ya hay una empresa con la misma clave se reutiliza (y conserva su `nombre`); si no, se crea |
+| `variantes` | string[] | ✓ | 1–50. Textos crudos **exactos**, tal como los devuelve `/candidatos` (mayúsculas, acentos y espacios incluidos) |
+
+Todo va en una transacción. Las variantes **no** tienen que compartir
+`nombre_clave`: es intencional, para fusionar a mano lo que ninguna regla
+de texto agrupa (siglas, prefijos, errores de dedo). Una variante sin fila
+de candidato se inserta ya como `fusionado`. Volver a fusionar una variante
+la re-apunta al nuevo canónico.
+
+**Respuesta 200:**
+```json
+{
+  "mensaje": "Se fusionaron 3 variante(s) en \"Comisión Federal de Electricidad\".",
+  "empresa": { "id_empresa": 2, "nombre": "Comisión Federal de Electricidad", "creada": true },
+  "egresados_ligados": { "empresa": 10, "primer_empleo": 21 },
+  "candidatos_actualizados": 2,
+  "candidatos_insertados": 1
+}
+```
+
+**Errores `400`:** alguna variante no la tiene ningún egresado ni es candidato; `nombre_canonico` queda vacío al normalizarlo.
+
+---
+
+### Descartar una variante
+
+```
+POST /admin/empresas/candidatos/:id/descartar
+```
+
+**Auth:** Solo `admin`
+**Params:** `id` = `id_empresa_candidato`
+**Body:** ninguno
+
+La variante deja de aparecer como pendiente y el detector no la reactiva.
+
+**Respuesta 200:**
+```json
+{ "mensaje": "Variante descartada.", "id_empresa_candidato": 16 }
+```
+
+`404` si el candidato no existe. `409` si ya estaba descartado o ya fue fusionado.
+
+---
+
+### Catálogo canónico
+
+```
+GET /admin/empresas?busqueda=deere
+```
+
+**Auth:** Solo `admin`
+**Query (DTO `ListarEmpresasDto`):** `busqueda` (opcional, `LIKE` sobre `nombre`)
+
+**Respuesta 200:** ordenado por nombre.
+```json
+{
+  "empresas": [
+    {
+      "id_empresa": 1,
+      "nombre": "FEMSA",
+      "nombre_clave": "femsa",
+      "activo": true,
+      "creado_en": "2026-10-05T17:39:07.000Z",
+      "egresados_empresa": 10,
+      "egresados_primer_empleo": 12
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### Eliminar una empresa del catálogo
+
+```
+DELETE /admin/empresas/:id_empresa
+```
+
+**Auth:** Solo `admin`
+Solo si no tiene egresados ligados en ninguna de las dos columnas. No borra
+en cascada.
+
+**Respuesta 200:**
+```json
+{ "mensaje": "Empresa eliminada del catálogo.", "id_empresa": 3 }
+```
+
+`404` si no existe. `409` si tiene egresados ligados (el mensaje dice
+cuántos por cada columna). Los candidatos que apuntaban a ella quedan con
+`empresa_id = null`.
+
+---
+
 ## Módulo: Dashboard
 
 ### Resumen general
@@ -2096,6 +2306,11 @@ Si `foto_url` es `null`, el egresado no subió foto.
 | `GET /duplicados/fusiones`, `/duplicados/fusiones/:id` | — | — | ✓ |
 | `PATCH /duplicados/:id/descartar` | — | — | ✓ |
 | `POST /duplicados/fusionar` | — | — | ✓ |
+| `POST /admin/empresas/detectar` | — | — | ✓ |
+| `GET /admin/empresas`, `/admin/empresas/candidatos` | — | — | ✓ |
+| `POST /admin/empresas/fusionar` | — | — | ✓ |
+| `POST /admin/empresas/candidatos/:id/descartar` | — | — | ✓ |
+| `DELETE /admin/empresas/:id_empresa` | — | — | ✓ |
 | `GET /usuarios` | — | — | ✓ |
 | `GET /usuarios/historial`, `/usuarios/historial/:id` | — | — | ✓ |
 | `POST /usuarios/invitado` | — | — | ✓ |
