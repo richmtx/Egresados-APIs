@@ -1596,6 +1596,7 @@ Normalización de nombres de empresa (migración `013_empresas.sql`).
 - Los reportes que agrupan por empresa (`topEmpresas` de `/egresados/estadisticas`, `topEmpresasPrimerEmpleo` de `/egresados/trayectoria`, `empresa_top` del dashboard, y los exports que salen de ellos) agrupan por `COALESCE(emp.nombre, TRIM(e.empresa))`: el nombre canónico si el egresado ya está ligado, y si no, su texto recortado. Los listados por egresado (directorio, detalles, perfil, export de la lista) siguen mostrando el texto crudo.
 - Aquí todos los agregados pasan por `Number()`: los conteos llegan como **number**.
 - Respuestas con `Cache-Control: no-store`. Las acciones quedan en el historial (sección `empresas`).
+- Las variantes de empresa de prueba se siembran desde `scripts/seed-egresados.ts` (quedan sin fusionar; ver `scripts/seed-empresas.md`). La migración `013b_seed_empresas.sql`, que las parchaba sobre datos ya cargados, fue eliminada al regenerar la semilla.
 
 ### Ejecutar detección
 

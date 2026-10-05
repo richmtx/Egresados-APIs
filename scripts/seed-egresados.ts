@@ -2,7 +2,7 @@
  * scripts/seed-egresados.ts
  *
  * Seed de datos ficticios para desarrollo local: borra todos los egresados
- * actuales y genera 500 registros deterministas que respetan las mismas
+ * actuales y genera TOTAL_EGRESADOS registros deterministas que respetan las mismas
  * reglas que aplica el formulario público (ver crearEtapa1 / completarEtapa2
  * en src/egresados/egresados.service.ts).
  *
@@ -16,6 +16,9 @@ import 'dotenv/config';
 import * as mysql from 'mysql2/promise';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import { claveEmpresaSql, COLLATE_VARIANTE } from '../src/common/constants/normalizacion-empresa';
+
+const TOTAL_EGRESADOS = 800;
 
 // ═══════════════════════════════════════════════════════════════════════
 // PRNG determinista (mulberry32) — misma semilla ⇒ mismos datos siempre.
@@ -140,20 +143,27 @@ function generarNombreCompleto(genero_id: number): string {
 }
 
 // ── Ubicación ──────────────────────────────────────────────────────────
-// Formato OBLIGATORIO "Ciudad, Estado, País" — los reportes geográficos
-// separan el país con SUBSTRING_INDEX(..., ',', -1).
-const CIUDADES_DURANGO = [
-  'Durango, Durango, México',
+// Formato: México, Estados Unidos y Canadá llevan "Ciudad, Estado, País";
+// el resto del mundo, solo "Ciudad, País". El país SIEMPRE es el último
+// segmento: los reportes geográficos lo separan con
+// SUBSTRING_INDEX(..., ',', -1). El primer segmento es la clave del
+// diccionario de coordenadas del mapa del panel (distribucion.component.ts).
+const CIUDAD_DURANGO_CAPITAL = 'Durango, Durango, México';
+
+// Reparto de ciudad_residencia y ciudad_trabajo. El resto (13%) es extranjero.
+const PROB_DURANGO_CAPITAL = 0.45;
+const PROB_RESTO_MEXICO = 0.42;
+
+// Los municipios de Durango que no son la capital van aquí: los reportes
+// cuentan como "Durango" solo lo que empieza con 'Durango'.
+const CIUDADES_MEXICO = [
   'Gómez Palacio, Durango, México',
   'Lerdo, Durango, México',
-  'Vicente Guerrero, Durango, México',
-  'Canatlán, Durango, México',
   'Santiago Papasquiaro, Durango, México',
   'El Salto, Durango, México',
+  'Vicente Guerrero, Durango, México',
+  'Canatlán, Durango, México',
   'Nombre de Dios, Durango, México',
-];
-
-const CIUDADES_MEXICO_OTRAS = [
   'Torreón, Coahuila, México',
   'Saltillo, Coahuila, México',
   'Monclova, Coahuila, México',
@@ -174,38 +184,85 @@ const CIUDADES_MEXICO_OTRAS = [
   'Mérida, Yucatán, México',
   'San Luis Potosí, San Luis Potosí, México',
   'Toluca, Estado de México, México',
+  'Morelia, Michoacán, México',
+  'Veracruz, Veracruz, México',
+  'Cancún, Quintana Roo, México',
 ];
 
-const CIUDADES_EXTRANJERO = [
-  'Houston, Texas, Estados Unidos de América',
-  'Dallas, Texas, Estados Unidos de América',
-  'Denver, Colorado, Estados Unidos de América',
-  'Los Ángeles, California, Estados Unidos de América',
-  'Chicago, Illinois, Estados Unidos de América',
+const CIUDADES_MUNDO = [
+  'Houston, Texas, Estados Unidos',
+  'Dallas, Texas, Estados Unidos',
+  'San Antonio, Texas, Estados Unidos',
+  'Chicago, Illinois, Estados Unidos',
+  'Denver, Colorado, Estados Unidos',
+  'Los Ángeles, California, Estados Unidos',
+  'Phoenix, Arizona, Estados Unidos',
+  'Seattle, Washington, Estados Unidos',
   'Toronto, Ontario, Canadá',
-  'Madrid, Madrid, España',
-  'Berlín, Berlín, Alemania',
+  'Vancouver, Columbia Británica, Canadá',
+  'Montreal, Quebec, Canadá',
+  'Madrid, España',
+  'Barcelona, España',
+  'Valencia, España',
+  'Medellín, Colombia',
+  'Bogotá, Colombia',
+  'Río de Janeiro, Brasil',
+  'São Paulo, Brasil',
+  'Santiago, Chile',
+  'Buenos Aires, Argentina',
+  'Lima, Perú',
+  'Berlín, Alemania',
+  'Múnich, Alemania',
+  'Ámsterdam, Países Bajos',
+  'Londres, Reino Unido',
+  'Dublín, Irlanda',
+  'Tokio, Japón',
+  'Seúl, Corea del Sur',
 ];
 
 // Lista única de países válidos como último segmento — usada TANTO para
 // generar los datos COMO para la consulta de verificación, así ambas
 // quedan garantizadas consistentes entre sí.
-const PAISES_VALIDOS = ['México', 'Estados Unidos de América', 'Canadá', 'España', 'Alemania'];
+const PAISES_VALIDOS = [
+  'México', 'Estados Unidos', 'Canadá', 'España', 'Colombia', 'Brasil',
+  'Chile', 'Argentina', 'Perú', 'Alemania', 'Países Bajos', 'Reino Unido',
+  'Irlanda', 'Japón', 'Corea del Sur',
+];
 
 const PAISES_NACIMIENTO_EXTRANJERO = ['Estados Unidos', 'Canadá', 'España', 'Guatemala', 'Colombia'];
 
-function pickCiudadResidencia(): string {
+// Mismo reparto para ciudad_residencia y ciudad_trabajo.
+function pickCiudad(): string {
   const r = rng.float();
-  if (r < 0.7) return rng.pick(CIUDADES_DURANGO);
-  if (r < 0.95) return rng.pick(CIUDADES_MEXICO_OTRAS);
-  return rng.pick(CIUDADES_EXTRANJERO);
+  if (r < PROB_DURANGO_CAPITAL) return CIUDAD_DURANGO_CAPITAL;
+  if (r < PROB_DURANGO_CAPITAL + PROB_RESTO_MEXICO) return rng.pick(CIUDADES_MEXICO);
+  return rng.pick(CIUDADES_MUNDO);
 }
 
-function pickCiudadTrabajo(): string {
-  const r = rng.float();
-  if (r < 0.65) return rng.pick(CIUDADES_DURANGO);
-  if (r < 0.92) return rng.pick(CIUDADES_MEXICO_OTRAS);
-  return rng.pick(CIUDADES_EXTRANJERO);
+interface RepartoCiudades { capital: number; mexico: number; mundo: number; }
+
+function paisDeCiudad(ciudad: string): string {
+  return ciudad.split(',').pop()!.trim();
+}
+
+function repartoCiudades(ciudades: (string | null)[]): RepartoCiudades {
+  const reparto: RepartoCiudades = { capital: 0, mexico: 0, mundo: 0 };
+  for (const c of ciudades) {
+    if (c === null) continue;
+    if (c === CIUDAD_DURANGO_CAPITAL) reparto.capital++;
+    else if (paisDeCiudad(c) === 'México') reparto.mexico++;
+    else reparto.mundo++;
+  }
+  return reparto;
+}
+
+function imprimirRepartoCiudades(etiqueta: string, r: RepartoCiudades) {
+  const total = r.capital + r.mexico + r.mundo;
+  const pct = (n: number) => (total > 0 ? (100 * n / total).toFixed(1) : '0.0') + '%';
+  console.log(`${etiqueta} (${total} con dato)`);
+  console.log(`  Durango capital  : ${r.capital} (${pct(r.capital)})`);
+  console.log(`  Resto de México  : ${r.mexico} (${pct(r.mexico)})`);
+  console.log(`  Extranjero       : ${r.mundo} (${pct(r.mundo)})`);
 }
 
 function pickPaisNacimiento(): string {
@@ -434,6 +491,117 @@ const EMPRESAS = [
   'Lear Corporation', 'Delphi', 'John Deere', 'Grupo Vasconia',
   'Impulsora Durango', 'Alpek', 'HEB México', 'Banco Banorte',
 ];
+
+// ── Variantes de nombre de empresa (módulo Empresas) ──────────────────
+// Nacen con los datos para que el detector de /admin/empresas tenga qué
+// encontrar. El seed las deja SIN FUSIONAR: no escribe en `empresas` ni en
+// `empresas_candidatos`.
+// Los espacios de '  John Deere  ' (dos al inicio, dos al final) y el doble
+// espacio de 'Arca  Continental' son intencionales.
+const VARIANTES_EMPRESA: Record<string, string[]> = {
+  'Oracle México': ['ORACLE MÉXICO', 'Oracle Mexico'],
+  'Softtek': ['SOFTTEK', 'Softtek S.A. de C.V.', 'Softek'],
+  'Lear Corporation': ['Lear Corporation S.A. de C.V.', 'LEAR CORPORATION'],
+  'Arca Continental': ['Arca  Continental', 'arca continental'],
+  'Grupo México': ['Grupo Mexico'],
+  'Grupo Bimbo': ['Grupo Bimbo, S.A. de C.V.'],
+  'Nissan Mexicana': ['Nissan Mexicana SA de CV'],
+  'FEMSA': ['Femsa'],
+  'John Deere': ['  John Deere  '],
+  'Gobierno del Estado de Durango': ['GOBIERNO DEL ESTADO DE DURANGO'],
+  'HEB México': ['heb mexico'],
+  'Comisión Federal de Electricidad': [
+    'CFE',
+    'COMISIÓN FEDERAL DE ELECTRICIDAD',
+    'Comisión Federal de Electricidad S.A. de C.V.',
+  ],
+  'Lala': ['Grupo Lala'],
+};
+const PROB_VARIANTE_EMPRESA = 0.25;
+
+// Variantes que NO comparten clave normalizada con su canónico: el detector
+// no las agrupa y solo se resuelven con la fusión manual. No "arreglarlas".
+const VARIANTES_NO_DETECTABLES = ['CFE', 'Softek', 'Grupo Lala'];
+
+// Grupos que el detector sí debe encontrar (todos los de VARIANTES_EMPRESA
+// menos 'Lala', cuya única variante no es detectable). Se exigen al menos
+// 11 para tolerar que alguna variante no salga sorteada.
+const MIN_GRUPOS_VARIANTES = 11;
+
+function pickEmpresa(): string {
+  const empresa = rng.pick(EMPRESAS);
+  const variantes = VARIANTES_EMPRESA[empresa];
+  if (variantes && rng.bool(PROB_VARIANTE_EMPRESA)) return rng.pick(variantes);
+  return empresa;
+}
+
+// Textos distintos de empresa y grupos de variantes (textos distintos que
+// comparten clave normalizada). `fuente` es una subconsulta con una columna
+// `texto`; la clave sale de claveEmpresaSql(), igual que en el detector.
+async function contarEmpresas(
+  conn: mysql.Connection,
+  fuente: string,
+  params: any[] = [],
+): Promise<{ textos: number; grupos: number }> {
+  const [[fila]] = (await conn.query(
+    `SELECT SUM(g.variantes) AS textos, SUM(g.variantes > 1) AS grupos
+     FROM (
+       SELECT COUNT(DISTINCT f.texto COLLATE ${COLLATE_VARIANTE}) AS variantes
+       FROM (${fuente}) f
+       WHERE f.texto IS NOT NULL
+       GROUP BY (${claveEmpresaSql('f.texto')}) COLLATE utf8mb4_0900_ai_ci
+     ) g`,
+    params,
+  )) as any[];
+  // SUM() llega como string (o null si no hay filas).
+  return { textos: Number(fila.textos ?? 0), grupos: Number(fila.grupos ?? 0) };
+}
+
+const FUENTE_EMPRESAS_BD = `
+  SELECT empresa AS texto FROM egresados
+  UNION ALL
+  SELECT primer_empleo_empresa FROM egresados`;
+
+// Para la simulación: los textos generados en memoria, con la misma colación
+// que las columnas de `egresados`.
+const FUENTE_EMPRESAS_JSON = `
+  SELECT jt.texto FROM JSON_TABLE(?, '$[*]'
+    COLUMNS (texto VARCHAR(255) COLLATE utf8mb4_0900_ai_ci PATH '$')) jt`;
+
+interface FilaVariante { variante: string; canonico: string; empresa: number; primer_empleo: number; detectable: boolean; }
+
+function contarVariantesSembradas(registros: any[]): FilaVariante[] {
+  const contar = (campo: 'empresa' | 'primer_empleo_empresa', texto: string) =>
+    registros.filter((r) => r[campo] === texto).length;
+  const filas: FilaVariante[] = [];
+  for (const [canonico, variantes] of Object.entries(VARIANTES_EMPRESA)) {
+    for (const variante of variantes) {
+      filas.push({
+        variante,
+        canonico,
+        empresa: contar('empresa', variante),
+        primer_empleo: contar('primer_empleo_empresa', variante),
+        detectable: !VARIANTES_NO_DETECTABLES.includes(variante),
+      });
+    }
+  }
+  return filas;
+}
+
+// El sorteo puede dejar una variante sin ningún egresado (con la semilla
+// actual le pasa a 'Softek'). Como todas existen a propósito, a la que
+// quede en cero se le asigna el primer registro que tenga su canónico. No
+// consume el rng: no altera el resto del dataset.
+function garantizarVariantes(registros: any[]): void {
+  for (const fila of contarVariantesSembradas(registros)) {
+    if (fila.empresa + fila.primer_empleo > 0) continue;
+    const porPrimerEmpleo = registros.find((r) => r.primer_empleo_empresa === fila.canonico);
+    const porEmpresa = registros.find((r) => r.empresa === fila.canonico);
+    if (porPrimerEmpleo) porPrimerEmpleo.primer_empleo_empresa = fila.variante;
+    else if (porEmpresa) porEmpresa.empresa = fila.variante;
+    else throw new Error(`No hay ningún registro con "${fila.canonico}" para sembrar la variante "${fila.variante}".`);
+  }
+}
 
 const PLANTILLAS_EMPRESA_PROPIA = [
   (ap: string) => `${ap} Consultores`,
@@ -734,7 +902,7 @@ function generarRegistro(
   ]);
 
   const pais_nacimiento = pickPaisNacimiento();
-  const ciudad_residencia = pickCiudadResidencia();
+  const ciudad_residencia = pickCiudad();
   const telefono = forzar.telefono ?? generarTelefono();
   const correo = generarCorreoUnico(nombre_completo);
 
@@ -765,10 +933,10 @@ function generarRegistro(
     if (situacion.texto.startsWith('Empresario')) {
       empresa = generarEmpresaPropia(apellidoPrincipal);
     } else {
-      empresa = rng.pick(EMPRESAS);
+      empresa = pickEmpresa();
     }
     puesto_trabajo = pickPuesto(carrera_id);
-    ciudad_trabajo = pickCiudadTrabajo();
+    ciudad_trabajo = pickCiudad();
     const ant = rng.pick(catalogos.antiguedadEmpleo);
     antiguedad_empleo_id = ant.id;
   }
@@ -815,7 +983,7 @@ function generarRegistro(
     if (medioElegido.texto === 'Otra') {
       medio_primer_empleo_otro = rng.pick(MEDIO_OTRO_TEXTOS);
     }
-    primer_empleo_empresa = rng.pick(EMPRESAS);
+    primer_empleo_empresa = pickEmpresa();
     primer_empleo_puesto = rng.pick(PUESTOS_PRIMER_EMPLEO);
   }
 
@@ -1114,7 +1282,7 @@ function construirParejasDuplicados(catalogos: Catalogos): ParejaDuplicado[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Construcción del dataset completo (500 registros)
+// Construcción del dataset completo (TOTAL_EGRESADOS registros)
 // ═══════════════════════════════════════════════════════════════════════
 function construirDataset(catalogos: Catalogos): { registros: any[]; parejas: ParejaDuplicado[] } {
   const parejas = construirParejasDuplicados(catalogos);
@@ -1123,17 +1291,21 @@ function construirDataset(catalogos: Catalogos): { registros: any[]; parejas: Pa
     registros.push(p.a);
     registros.push(p.b);
   }
-  const restantes = 500 - registros.length;
+  const restantes = TOTAL_EGRESADOS - registros.length;
   for (let i = 0; i < restantes; i++) {
     registros.push(generarRegistro(catalogos));
   }
+  garantizarVariantes(registros);
   return { registros, parejas };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
 // Ejecución
 // ═══════════════════════════════════════════════════════════════════════
+// Se borran ANTES que egresados (todas lo referencian).
 const TABLAS_HIJAS_EN_ORDEN = [
+  'duplicados_fusiones',
+  'duplicados_candidatos',
   'notificaciones',
   'autorizaciones',
   'certificaciones',
@@ -1147,7 +1319,11 @@ const TABLAS_HIJAS_EN_ORDEN = [
   'egresado_emprendimientos',
   'egresado_proyectos_sociales',
 ];
-const TODAS_LAS_TABLAS_A_RESETEAR = [...TABLAS_HIJAS_EN_ORDEN, 'egresados'];
+// Se borran DESPUÉS que egresados (egresados.empresa_id y
+// primer_empleo_empresa_id apuntan a empresas) y en este orden:
+// empresas_candidatos apunta a empresas.
+const TABLAS_DESPUES_DE_EGRESADOS = ['empresas_candidatos', 'empresas'];
+const TODAS_LAS_TABLAS_A_RESETEAR = [...TABLAS_HIJAS_EN_ORDEN, 'egresados', ...TABLAS_DESPUES_DE_EGRESADOS];
 
 async function imprimirSimulacion(conn: mysql.Connection, registros: any[], parejas: ParejaDuplicado[]) {
   const [[{ n }]] = (await conn.query('SELECT COUNT(*) AS n FROM egresados')) as any[];
@@ -1167,17 +1343,31 @@ async function imprimirSimulacion(conn: mysql.Connection, registros: any[], pare
   console.log(`Egresados actuales    : ${n} (serían eliminados junto con todas sus tablas hijas)`);
   console.log('\nTablas que se BORRARÍAN (en este orden), con AUTO_INCREMENT reiniciado:');
   for (const t of TODAS_LAS_TABLAS_A_RESETEAR) console.log(`  - ${t}`);
-  console.log('\nTablas que NO se tocan: usuarios, historial_actividad, reportes_historial, catálogos.');
+  console.log('\nTablas que NO se tocan: usuarios, historial_actividad, catálogos.');
 
-  console.log('\n── Dataset que se generaría (500 egresados) ──────────────');
-  console.log(`Registro completo (etapa 2)      : ${completos} (${(100 * completos / 500).toFixed(1)}%)`);
-  console.log(`Incompletos (solo etapa 1)       : ${500 - completos}`);
-  console.log(`Consintieron datos sensibles     : ${consintieron} (${(100 * consintieron / 500).toFixed(1)}%)`);
-  console.log(`Revisados                        : ${revisados} (${(100 * revisados / 500).toFixed(1)}%)`);
+  console.log(`\n── Dataset que se generaría (${registros.length} egresados) ──────────────`);
+  console.log(`Registro completo (etapa 2)      : ${completos} (${(100 * completos / TOTAL_EGRESADOS).toFixed(1)}%)`);
+  console.log(`Incompletos (solo etapa 1)       : ${TOTAL_EGRESADOS - completos}`);
+  console.log(`Consintieron datos sensibles     : ${consintieron} (${(100 * consintieron / TOTAL_EGRESADOS).toFixed(1)}%)`);
+  console.log(`Revisados                        : ${revisados} (${(100 * revisados / TOTAL_EGRESADOS).toFixed(1)}%)`);
   console.log(`Inactivos (sin empresa/puesto)   : ${inactivos}`);
   console.log(`Con estudio posterior            : ${conEstudio}`);
   console.log(`Con emprendimiento               : ${conEmprendimiento}`);
   console.log(`Con proyecto social               : ${conProyecto}`);
+
+  console.log('\n── Reparto de ciudades (objetivo 45 / 42 / 13) ────────────');
+  imprimirRepartoCiudades('ciudad_residencia', repartoCiudades(registros.map((r) => r.ciudad_residencia)));
+  imprimirRepartoCiudades('ciudad_trabajo', repartoCiudades(registros.map((r) => r.ciudad_trabajo)));
+
+  const textosEmpresa = [...new Set(
+    registros.flatMap((r) => [r.empresa, r.primer_empleo_empresa]).filter((t) => t !== null),
+  )];
+  const empresas = await contarEmpresas(conn, FUENTE_EMPRESAS_JSON, [JSON.stringify(textosEmpresa)]);
+  console.log('\n── Empresas (empresa + primer_empleo_empresa) ─────────────');
+  console.log(`Textos distintos                 : ${empresas.textos}`);
+  console.log(`Grupos de variantes detectables  : ${empresas.grupos} (mínimo exigido: ${MIN_GRUPOS_VARIANTES})`);
+  console.log('Variantes sembradas (egresados que las tienen en cada columna):');
+  console.table(contarVariantesSembradas(registros).map((f) => ({ ...f, variante: JSON.stringify(f.variante) })));
 
   console.log('\n── Parejas de duplicados sembrados (8) ────────────────────');
   for (const p of parejas) {
@@ -1225,6 +1415,9 @@ async function ejecutarSeed(conn: mysql.Connection, registros: any[], parejas: P
       await conn.query(`DELETE FROM ${tabla}`);
     }
     await conn.query('DELETE FROM egresados');
+    for (const tabla of TABLAS_DESPUES_DE_EGRESADOS) {
+      await conn.query(`DELETE FROM ${tabla}`);
+    }
     await conn.commit();
   } catch (err) {
     await conn.rollback();
@@ -1344,8 +1537,10 @@ async function verificarIntegridad(conn: mysql.Connection): Promise<void> {
   const fallos: string[] = [];
   const q = async (sql: string) => (await conn.query(sql))[0] as any[];
 
+  // Los agregados se pasan por Number(): según el tipo, mysql2 los entrega
+  // como string y una comparación estricta contra un número fallaría siempre.
   const [{ n: total }] = await q('SELECT COUNT(*) AS n FROM egresados');
-  if (total !== 500) fallos.push(`Se esperaban 500 egresados, hay ${total}.`);
+  if (Number(total) !== TOTAL_EGRESADOS) fallos.push(`Se esperaban ${TOTAL_EGRESADOS} egresados, hay ${total}.`);
 
   const [{ n: inactivosConDatos }] = await q(`
     SELECT COUNT(*) AS n FROM egresados e
@@ -1415,12 +1610,24 @@ async function verificarIntegridad(conn: mysql.Connection): Promise<void> {
   if (completosSinColaboracion > 0) fallos.push(`${completosSinColaboracion} registros completos sin ninguna colaboración.`);
 
   const listaPaises = PAISES_VALIDOS.map((p) => `'${p.replace(/'/g, "''")}'`).join(', ');
-  const [{ n: ciudadTrabajoSinPais }] = await q(`
-    SELECT COUNT(*) AS n FROM egresados
-    WHERE ciudad_trabajo IS NOT NULL
-      AND TRIM(SUBSTRING_INDEX(ciudad_trabajo, ',', -1)) NOT IN (${listaPaises})
-  `);
-  if (ciudadTrabajoSinPais > 0) fallos.push(`${ciudadTrabajoSinPais} registros con ciudad_trabajo cuyo último segmento no es un país reconocido.`);
+  for (const columna of ['ciudad_trabajo', 'ciudad_residencia']) {
+    const [{ n: sinPais }] = await q(`
+      SELECT COUNT(*) AS n FROM egresados
+      WHERE ${columna} IS NOT NULL
+        AND TRIM(SUBSTRING_INDEX(${columna}, ',', -1)) NOT IN (${listaPaises})
+    `);
+    if (Number(sinPais) > 0) fallos.push(`${sinPais} registros con ${columna} cuyo último segmento no es un país reconocido.`);
+  }
+
+  const empresas = await contarEmpresas(conn, FUENTE_EMPRESAS_BD);
+  if (empresas.grupos < MIN_GRUPOS_VARIANTES) {
+    fallos.push(`Se esperaban al menos ${MIN_GRUPOS_VARIANTES} grupos de variantes de empresa, hay ${empresas.grupos}.`);
+  }
+
+  for (const tabla of TABLAS_DESPUES_DE_EGRESADOS) {
+    const [{ n }] = await q(`SELECT COUNT(*) AS n FROM ${tabla}`);
+    if (Number(n) !== 0) fallos.push(`La tabla ${tabla} debería quedar vacía y tiene ${n} filas.`);
+  }
 
   if (fallos.length > 0) {
     throw new Error('Verificación de integridad fallida:\n  - ' + fallos.join('\n  - '));
@@ -1451,6 +1658,59 @@ async function imprimirResumenFinal(conn: mysql.Connection) {
   console.log(`egresado_emprendimientos : ${emprendimientos}`);
   console.log(`egresado_proyectos_sociales : ${proyectos}`);
   console.log(`certificaciones          : ${certs}`);
+
+  console.log('\n── Reparto de ciudades (objetivo 45 / 42 / 13) ────────────');
+  for (const columna of ['ciudad_residencia', 'ciudad_trabajo']) {
+    const [[r]] = (await conn.query(
+      `SELECT
+         SUM(${columna} = ?) AS capital,
+         SUM(${columna} <> ? AND TRIM(SUBSTRING_INDEX(${columna}, ',', -1)) = 'México') AS mexico,
+         SUM(TRIM(SUBSTRING_INDEX(${columna}, ',', -1)) <> 'México') AS mundo
+       FROM egresados WHERE ${columna} IS NOT NULL`,
+      [CIUDAD_DURANGO_CAPITAL, CIUDAD_DURANGO_CAPITAL],
+    )) as any[];
+    imprimirRepartoCiudades(columna, { capital: Number(r.capital), mexico: Number(r.mexico), mundo: Number(r.mundo) });
+  }
+
+  const empresas = await contarEmpresas(conn, FUENTE_EMPRESAS_BD);
+  console.log('\n── Empresas (empresa + primer_empleo_empresa) ─────────────');
+  console.log(`Textos distintos                 : ${empresas.textos}`);
+  console.log(`Grupos de variantes detectables  : ${empresas.grupos}`);
+  console.log('empresas / empresas_candidatos   : vacías (variantes sin fusionar)');
+}
+
+function escribirMarkdownEmpresas(registros: any[]) {
+  const variantes = contarVariantesSembradas(registros);
+  const filas: string[] = [
+    '# Variantes de nombre de empresa sembradas',
+    '',
+    'Generadas por `scripts/seed-egresados.ts` (semilla determinista = ' + SEMILLA + ') para probar la normalización de empresas (`/admin/empresas`).',
+    '',
+    'Las variantes quedan **sin fusionar**: el seed deja vacías `empresas` y `empresas_candidatos`. Hay que correr `POST /admin/empresas/detectar` y revisarlas en la pantalla de administración.',
+    '',
+    'Las variantes van entre comillas para que se vean los espacios: `"  John Deere  "` lleva dos al inicio y dos al final, y `"Arca  Continental"` un doble espacio interno. Son intencionales.',
+    '',
+    '| Variante | Canónico | Egresados en `empresa` | Egresados en `primer_empleo_empresa` | ¿La agrupa el detector? |',
+    '|----------|----------|------------------------|--------------------------------------|--------------------------|',
+  ];
+  for (const v of variantes) {
+    filas.push(`| \`${JSON.stringify(v.variante)}\` | ${v.canonico} | ${v.empresa} | ${v.primer_empleo} | ${v.detectable ? 'Sí' : '**No**'} |`);
+  }
+  filas.push(
+    '',
+    '## Por qué CFE, Softek y Grupo Lala no son detectables',
+    '',
+    'El detector agrupa los textos por una clave normalizada: minúsculas, sin puntos ni comas, sin sufijo societario, espacios colapsados, y comparada sin distinguir acentos. Eso junta `SOFTTEK`, `Softtek S.A. de C.V.` y `Softtek`, pero no puede saber que dos textos distintos nombran a la misma empresa:',
+    '',
+    '- `CFE` es la sigla de Comisión Federal de Electricidad: no comparten ni una palabra.',
+    '- `Softek` es un error de dedo de Softtek: le falta una letra, así que la clave es otra.',
+    '- `Grupo Lala` lleva un prefijo que `Lala` no tiene.',
+    '',
+    'Existen a propósito: son los casos que justifican la fusión manual (`POST /admin/empresas/fusionar` acepta variantes que no comparten clave). No hay que corregirlos en el seed.',
+  );
+  const destino = join(__dirname, 'seed-empresas.md');
+  writeFileSync(destino, filas.join('\n') + '\n', 'utf-8');
+  console.log(`\nTabla de variantes de empresa guardada en ${destino}`);
 }
 
 function escribirMarkdownDuplicados(parejas: ParejaDuplicado[]) {
@@ -1500,7 +1760,7 @@ async function main() {
     const catalogos = await cargarCatalogos(conn);
     prepararTablasDinamicas(catalogos);
 
-    console.log('Generando 500 registros deterministas (semilla = ' + SEMILLA + ')...');
+    console.log(`Generando ${TOTAL_EGRESADOS} registros deterministas (semilla = ${SEMILLA})...`);
     const { registros, parejas } = construirDataset(catalogos);
 
     if (!confirmar) {
@@ -1508,10 +1768,11 @@ async function main() {
       return;
     }
 
-    console.log('Aplicando cambios: borrando egresados actuales e insertando 500 nuevos...');
+    console.log(`Aplicando cambios: borrando egresados actuales e insertando ${TOTAL_EGRESADOS} nuevos...`);
     await ejecutarSeed(conn, registros, parejas);
     await imprimirResumenFinal(conn);
     escribirMarkdownDuplicados(parejas);
+    escribirMarkdownEmpresas(registros);
   } finally {
     await conn.end();
   }
