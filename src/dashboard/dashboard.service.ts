@@ -208,13 +208,14 @@ export class DashboardService {
 
     const [empresaTop] = await this.dataSource.query(`
   SELECT
-    e.empresa,
+    COALESCE(emp.nombre, TRIM(e.empresa)) AS empresa,
     COUNT(*) AS total
   FROM egresados e
+  LEFT JOIN empresas emp ON emp.id_empresa = e.empresa_id
   WHERE e.empresa IS NOT NULL
     AND e.empresa != ''
-  GROUP BY e.empresa
-  ORDER BY total DESC
+  GROUP BY COALESCE(emp.nombre, TRIM(e.empresa))
+  ORDER BY total DESC, COALESCE(emp.nombre, TRIM(e.empresa)) ASC
   LIMIT 1
 `);
 

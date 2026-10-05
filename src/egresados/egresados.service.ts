@@ -1048,13 +1048,17 @@ export class EgresadosService {
     `, params);
 
     // 8. Top empresas
+    // Se agrupa por el nombre canónico si el egresado ya fue normalizado
+    // (empresa_id); si no, por lo que escribió, recortado.
     const topEmpresas = await this.dataSource.query(`
-      SELECT e.empresa, COUNT(*) AS total
+      SELECT COALESCE(emp.nombre, TRIM(e.empresa)) AS empresa, COUNT(*) AS total
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      LEFT JOIN empresas emp ON emp.id_empresa = e.empresa_id
       ${where}
       AND e.empresa IS NOT NULL AND e.empresa != ''
-      GROUP BY e.empresa ORDER BY total DESC LIMIT 10
+      GROUP BY COALESCE(emp.nombre, TRIM(e.empresa))
+      ORDER BY total DESC, COALESCE(emp.nombre, TRIM(e.empresa)) ASC LIMIT 10
     `, params);
 
     // 9. Evolución por generación
@@ -2525,15 +2529,18 @@ export class EgresadosService {
 
     // ── PRIMER EMPLEO ─────────────────────────────────────────────────────
 
+    // Nombre canónico si ya fue normalizado (primer_empleo_empresa_id); si no,
+    // el texto recortado.
     const topEmpresasPrimerEmpleo = await this.dataSource.query(`
-      SELECT TRIM(e.primer_empleo_empresa) AS empresa, COUNT(*) AS total
+      SELECT COALESCE(emp.nombre, TRIM(e.primer_empleo_empresa)) AS empresa, COUNT(*) AS total
       FROM egresados e
       LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      LEFT JOIN empresas emp ON emp.id_empresa = e.primer_empleo_empresa_id
       ${where}
         AND e.primer_empleo_empresa IS NOT NULL
         AND TRIM(e.primer_empleo_empresa) != ''
-      GROUP BY TRIM(e.primer_empleo_empresa)
-      ORDER BY total DESC
+      GROUP BY COALESCE(emp.nombre, TRIM(e.primer_empleo_empresa))
+      ORDER BY total DESC, COALESCE(emp.nombre, TRIM(e.primer_empleo_empresa)) ASC
       LIMIT 10
     `, params);
 

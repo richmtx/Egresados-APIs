@@ -5,7 +5,7 @@ Backend NestJS. Base URL de desarrollo: `http://localhost:3000`
 > Fuente de verdad: los controladores, DTOs y servicios de `src/`. Si algo
 > de este archivo no coincide con el código, el código gana y hay que
 > corregir este archivo. El inventario exacto de rutas sale del log de
-> arranque (`[RouterExplorer] Mapped {...}`): hoy son **113 rutas**.
+> arranque (`[RouterExplorer] Mapped {...}`): hoy son **115 rutas**.
 
 ---
 
@@ -1593,7 +1593,7 @@ Normalización de nombres de empresa (migración `013_empresas.sql`).
 - El detector solo **propone** variantes en `empresas_candidatos`; nunca liga egresados.
 - Estados de un candidato: `pendiente` | `fusionado` | `descartado`. Re-ejecutar el detector nunca pisa una decisión del admin.
 - La clave de agrupación (`nombre_clave`: minúsculas, sin puntos ni comas, sin sufijo societario) se calcula con `claveEmpresaSql()` de `src/common/constants/normalizacion-empresa.ts`, la misma expresión de la columna generada `empresas.nombre_clave`. Las claves se comparan sin distinguir acentos ni mayúsculas; las variantes, de forma exacta (`utf8mb4_0900_as_cs`).
-- Los reportes, el dashboard y los exports **todavía agrupan por el texto crudo**: aún no leen estas FK.
+- Los reportes que agrupan por empresa (`topEmpresas` de `/egresados/estadisticas`, `topEmpresasPrimerEmpleo` de `/egresados/trayectoria`, `empresa_top` del dashboard, y los exports que salen de ellos) agrupan por `COALESCE(emp.nombre, TRIM(e.empresa))`: el nombre canónico si el egresado ya está ligado, y si no, su texto recortado. Los listados por egresado (directorio, detalles, perfil, export de la lista) siguen mostrando el texto crudo.
 - Aquí todos los agregados pasan por `Number()`: los conteos llegan como **number**.
 - Respuestas con `Cache-Control: no-store`. Las acciones quedan en el historial (sección `empresas`).
 
@@ -1739,6 +1739,72 @@ La variante deja de aparecer como pendiente y el detector no la reactiva.
 
 ---
 
+### Reactivar una variante descartada
+
+```
+POST /admin/empresas/candidatos/:id/reactivar
+```
+
+**Auth:** Solo `admin`
+**Params:** `id` = `id_empresa_candidato`
+**Body:** ninguno
+
+Deshace un descarte: el candidato vuelve a `pendiente` con `revisado_por` y
+`revisado_en` en `null` (lo exige el CHECK `chk_cand_revision`). Queda en el
+historial (`reactivar_empresa`).
+
+**Respuesta 200:**
+```json
+{ "mensaje": "Variante reactivada: vuelve a estar pendiente.", "id_empresa_candidato": 16 }
+```
+
+`404` si el candidato no existe. `409` si está `fusionado` (ese caso se
+corrige volviéndolo a fusionar con el nombre correcto) o si ya estaba
+`pendiente`.
+
+> Un candidato reactivado es un pendiente como cualquier otro: si su grupo
+> ya no tiene más de un texto distinto, la siguiente detección lo borra.
+
+---
+
+### Textos de empresa en los datos
+
+```
+GET /admin/empresas/textos?busqueda=deere&limite=100
+```
+
+**Auth:** Solo `admin`
+**Query (DTO `ListarTextosEmpresaDto`, todos opcionales):**
+
+| Param | Tipo | Notas |
+|---|---|---|
+| `busqueda` | string | Coincidencia parcial, sin distinguir mayúsculas ni acentos. Máx. 255 |
+| `limite` | number | 1–500, default 100. Vacío (`?limite=`) = default; fuera de rango → `400` |
+
+Textos crudos distintos de `egresados.empresa` y
+`egresados.primer_empleo_empresa`, unidos en una sola lista (un texto que
+está en las dos columnas es una fila con sus dos contadores). Para la
+pantalla de fusión manual: evita descargar `GET /egresados` completo.
+
+- `texto` es el valor **exacto, sin recortar** (`"  John Deere  "` y `"John Deere"` son dos filas). Los textos se distinguen con `utf8mb4_0900_as_cs`.
+- `empresa_id` / `empresa_nombre`: la empresa del catálogo a la que ya están ligados los egresados que escribieron ese texto; `null` si no se ha fusionado.
+- Ordenado por ocurrencias totales descendente y luego por texto.
+- `total` = textos distintos que cumplen la búsqueda, **antes** de aplicar `limite`.
+
+**Respuesta 200:**
+```json
+{
+  "textos": [
+    { "texto": "John Deere", "ocurrencias_empresa": 8, "ocurrencias_primer_empleo": 15, "empresa_id": 1, "empresa_nombre": "John Deere" },
+    { "texto": "  John Deere  ", "ocurrencias_empresa": 2, "ocurrencias_primer_empleo": 0, "empresa_id": 1, "empresa_nombre": "John Deere" }
+  ],
+  "total": 2,
+  "limite": 100
+}
+```
+
+---
+
 ### Catálogo canónico
 
 ```
@@ -1776,16 +1842,17 @@ DELETE /admin/empresas/:id_empresa
 
 **Auth:** Solo `admin`
 Solo si no tiene egresados ligados en ninguna de las dos columnas. No borra
-en cascada.
+en cascada. En la misma transacción, los candidatos que apuntaban a ella
+regresan a `pendiente` (con `empresa_id`, `revisado_por` y `revisado_en` en
+`null`) para que se puedan volver a revisar.
 
 **Respuesta 200:**
 ```json
-{ "mensaje": "Empresa eliminada del catálogo.", "id_empresa": 3 }
+{ "mensaje": "Empresa eliminada del catálogo.", "id_empresa": 3, "candidatos_reactivados": 2 }
 ```
 
 `404` si no existe. `409` si tiene egresados ligados (el mensaje dice
-cuántos por cada columna). Los candidatos que apuntaban a ella quedan con
-`empresa_id = null`.
+cuántos por cada columna).
 
 ---
 
@@ -2307,9 +2374,10 @@ Si `foto_url` es `null`, el egresado no subió foto.
 | `PATCH /duplicados/:id/descartar` | — | — | ✓ |
 | `POST /duplicados/fusionar` | — | — | ✓ |
 | `POST /admin/empresas/detectar` | — | — | ✓ |
-| `GET /admin/empresas`, `/admin/empresas/candidatos` | — | — | ✓ |
+| `GET /admin/empresas`, `/admin/empresas/candidatos`, `/admin/empresas/textos` | — | — | ✓ |
 | `POST /admin/empresas/fusionar` | — | — | ✓ |
 | `POST /admin/empresas/candidatos/:id/descartar` | — | — | ✓ |
+| `POST /admin/empresas/candidatos/:id/reactivar` | — | — | ✓ |
 | `DELETE /admin/empresas/:id_empresa` | — | — | ✓ |
 | `GET /usuarios` | — | — | ✓ |
 | `GET /usuarios/historial`, `/usuarios/historial/:id` | — | — | ✓ |

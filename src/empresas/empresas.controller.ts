@@ -3,6 +3,7 @@ import { EmpresasService } from './empresas.service';
 import { ListarCandidatosEmpresaDto } from './dto/listar-candidatos-empresa.dto';
 import { ListarEmpresasDto } from './dto/listar-empresas.dto';
 import { FusionarEmpresasDto } from './dto/fusionar-empresas.dto';
+import { ListarTextosEmpresaDto } from './dto/listar-textos-empresa.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -37,6 +38,19 @@ export class EmpresasController {
   @Header('Cache-Control', 'no-store')
   descartar(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.empresasService.descartar(id, req.user.usuario, req.user.id_usuario);
+  }
+
+  @Post('candidatos/:id/reactivar')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  reactivar(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.empresasService.reactivar(id, req.user.id_usuario);
+  }
+
+  @Get('textos')
+  @Header('Cache-Control', 'no-store')
+  listarTextos(@Query() query: ListarTextosEmpresaDto) {
+    return this.empresasService.listarTextos(query);
   }
 
   @Post('fusionar')

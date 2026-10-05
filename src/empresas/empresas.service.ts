@@ -7,6 +7,7 @@ import { claveEmpresaSql, COLLATE_VARIANTE } from '../common/constants/normaliza
 import { EstadoCandidatoEmpresa, ListarCandidatosEmpresaDto } from './dto/listar-candidatos-empresa.dto';
 import { ListarEmpresasDto } from './dto/listar-empresas.dto';
 import { FusionarEmpresasDto } from './dto/fusionar-empresas.dto';
+import { LIMITE_TEXTOS_DEFAULT, ListarTextosEmpresaDto } from './dto/listar-textos-empresa.dto';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NORMALIZACIÓN DE NOMBRES DE EMPRESAS (migración 013)
@@ -508,6 +509,111 @@ export class EmpresasService {
     return { mensaje: 'Variante descartada.', id_empresa_candidato: id };
   }
 
+  // 4b. REACTIVAR — deshace un descarte: el candidato vuelve a 'pendiente'.
+  // estado, revisado_por y revisado_en van en el mismo UPDATE por el CHECK
+  // chk_cand_revision (error 3819 si solo cambia el estado).
+  async reactivar(id: number, idAdmin: number) {
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    let candidato: any;
+    try {
+      [candidato] = await qr.query(
+        `SELECT id_empresa_candidato, nombre_variante, estado
+         FROM empresas_candidatos
+         WHERE id_empresa_candidato = ? FOR UPDATE`,
+        [id],
+      );
+      if (!candidato) throw new NotFoundException('Candidato de empresa no encontrado.');
+      // Un fusionado tiene egresados ligados: se corrige volviéndolo a
+      // fusionar con el nombre correcto, no reactivándolo.
+      if (candidato.estado === 'fusionado') {
+        throw new ConflictException(
+          'Esta variante ya fue fusionada; para corregirla, vuelve a fusionarla con el nombre correcto.',
+        );
+      }
+      if (candidato.estado === 'pendiente') {
+        throw new ConflictException('Esta variante ya está pendiente.');
+      }
+
+      await qr.query(
+        `UPDATE empresas_candidatos
+         SET estado = 'pendiente', revisado_por = NULL, revisado_en = NULL
+         WHERE id_empresa_candidato = ?`,
+        [id],
+      );
+      await qr.commitTransaction();
+    } catch (err) {
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    await this.auditar(
+      idAdmin,
+      'reactivar_empresa',
+      `Reactivó la variante de empresa "${candidato.nombre_variante}" (deshizo el descarte)`,
+    );
+
+    return { mensaje: 'Variante reactivada: vuelve a estar pendiente.', id_empresa_candidato: id };
+  }
+
+  // 4c. TEXTOS — los textos crudos distintos de las dos columnas, para la
+  // pantalla de fusión manual. `texto` sale EXACTO, sin recortar: los espacios
+  // de los extremos son lo único que distingue a algunas variantes. Un texto
+  // que está en las dos columnas es UNA fila con sus dos contadores.
+  // La búsqueda usa la colación de la columna (no distingue mayúsculas); la
+  // agrupación, COLLATE_VARIANTE.
+  async listarTextos(query: ListarTextosEmpresaDto) {
+    const busqueda = query.busqueda?.trim();
+    const limite = query.limite ?? LIMITE_TEXTOS_DEFAULT;
+    const filtro = (columna: string) => (busqueda ? `AND ${columna} LIKE ?` : '');
+    const like = busqueda ? [`%${escaparLike(busqueda)}%`] : [];
+
+    // empresa_id: fusionar liga a TODOS los egresados que escribieron el texto,
+    // así que hay un solo valor por texto; MAX ignora los NULL de quienes se
+    // registraron después de la fusión.
+    const filas: any[] = await this.dataSource.query(`
+      SELECT x.texto, x.oc_empresa, x.oc_primer, x.empresa_id,
+             emp.nombre AS empresa_nombre, x.total_textos
+      FROM (
+        SELECT t.texto,
+               SUM(t.oc_empresa) AS oc_empresa, SUM(t.oc_primer) AS oc_primer,
+               MAX(t.empresa_id) AS empresa_id,
+               COUNT(*) OVER () AS total_textos
+        FROM (
+          SELECT empresa COLLATE ${COLLATE_VARIANTE} AS texto,
+                 1 AS oc_empresa, 0 AS oc_primer, empresa_id
+          FROM egresados
+          WHERE empresa IS NOT NULL AND TRIM(empresa) <> '' ${filtro('empresa')}
+          UNION ALL
+          SELECT primer_empleo_empresa COLLATE ${COLLATE_VARIANTE},
+                 0, 1, primer_empleo_empresa_id
+          FROM egresados
+          WHERE primer_empleo_empresa IS NOT NULL AND TRIM(primer_empleo_empresa) <> ''
+            ${filtro('primer_empleo_empresa')}
+        ) t
+        GROUP BY t.texto
+        ORDER BY SUM(t.oc_empresa) + SUM(t.oc_primer) DESC, t.texto
+        LIMIT ?
+      ) x
+      LEFT JOIN empresas emp ON emp.id_empresa = x.empresa_id
+      ORDER BY x.oc_empresa + x.oc_primer DESC, x.texto
+    `, [...like, ...like, limite]);
+
+    const textos = filas.map(f => ({
+      texto: f.texto,
+      ocurrencias_empresa: Number(f.oc_empresa),
+      ocurrencias_primer_empleo: Number(f.oc_primer),
+      empresa_id: f.empresa_id === null ? null : Number(f.empresa_id),
+      empresa_nombre: f.empresa_nombre ?? null,
+    }));
+
+    // total = textos distintos que cumplen la búsqueda, antes del límite.
+    return { textos, total: Number(filas[0]?.total_textos ?? 0), limite };
+  }
+
   // 5. CATÁLOGO canónico, con los egresados ligados por cada columna.
   async listar(query: ListarEmpresasDto) {
     const busqueda = query.busqueda?.trim();
@@ -538,12 +644,15 @@ export class EmpresasService {
   }
 
   // 6. ELIMINAR del catálogo, solo si nadie está ligado. Sin cascada: las FK
-  // de egresados son ON DELETE SET NULL y aquí no se llega a usarlas.
+  // de egresados son ON DELETE SET NULL y aquí no se llega a usarlas. Los
+  // candidatos que apuntaban a ella regresan a 'pendiente' en la misma
+  // transacción.
   async eliminar(idEmpresa: number, idAdmin: number) {
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
     let empresa: any;
+    let candidatosReactivados = 0;
     try {
       [empresa] = await qr.query(
         `SELECT id_empresa, nombre FROM empresas WHERE id_empresa = ? FOR UPDATE`,
@@ -559,6 +668,17 @@ export class EmpresasService {
         );
       }
 
+      // Sus candidatos vuelven a 'pendiente' ANTES de borrar: si no, la FK
+      // (ON DELETE SET NULL) los deja 'fusionado' con empresa_id NULL, que ni
+      // sirven como revisados ni se pueden volver a revisar.
+      const res = await qr.query(
+        `UPDATE empresas_candidatos
+         SET estado = 'pendiente', empresa_id = NULL, revisado_por = NULL, revisado_en = NULL
+         WHERE empresa_id = ?`,
+        [idEmpresa],
+      );
+      candidatosReactivados = Number(res?.affectedRows ?? 0);
+
       await qr.query(`DELETE FROM empresas WHERE id_empresa = ?`, [idEmpresa]);
       await qr.commitTransaction();
     } catch (err) {
@@ -568,9 +688,18 @@ export class EmpresasService {
       await qr.release();
     }
 
-    await this.auditar(idAdmin, 'eliminar_empresa', `Eliminó del catálogo la empresa "${empresa.nombre}" (${idEmpresa})`);
+    await this.auditar(
+      idAdmin,
+      'eliminar_empresa',
+      `Eliminó del catálogo la empresa "${empresa.nombre}" (${idEmpresa}); `
+      + `${candidatosReactivados} candidato(s) regresaron a pendiente`,
+    );
 
-    return { mensaje: 'Empresa eliminada del catálogo.', id_empresa: idEmpresa };
+    return {
+      mensaje: 'Empresa eliminada del catálogo.',
+      id_empresa: idEmpresa,
+      candidatos_reactivados: candidatosReactivados,
+    };
   }
 
   private async contarLigados(qr: QueryRunner, idEmpresa: number) {
