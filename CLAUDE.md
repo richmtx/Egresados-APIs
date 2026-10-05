@@ -226,9 +226,9 @@ foto: <archivo>                                  ← opcional, max 2MB, jpg/png/
 | `ciudad_residencia` | string | ✓ | |
 | `pais_nacimiento` | string | — | Máx. 80 |
 | `carrera` | string | ✓ | Valor del catálogo `/carreras` |
-| `anio_ingreso` | number | — | 1980 – año actual (`@MaxCurrentYear()`). No puede ser mayor que `anio_egreso` (400) |
+| `anio_ingreso` | number | — | 1955 – año actual (`ANIO_INGRESO_MIN` y `@MaxCurrentYear()`). No puede ser mayor que `anio_egreso` (400) |
 | `periodo_ingreso` | string | — | `'Enero - Junio'` \| `'Agosto - Diciembre'` \| `'No lo recuerdo'` |
-| `anio_egreso` | number | ✓ | 1990 – año actual (`@MaxCurrentYear()`) |
+| `anio_egreso` | number | ✓ | 1960 – año actual (`ANIO_EGRESO_MIN` y `@MaxCurrentYear()`). Los mínimos viven en `src/common/constants/limites-anio.ts` |
 | `estatus_titulacion` | string | ✓ | Valor del catálogo `/titulacion` (se guarda como texto, no se valida contra el catálogo) |
 | `nivel_ingles` | string | ✓ | Valor del catálogo `/niveles-ingles` |
 | `situacion_laboral` | string | ✓ | Valor del catálogo `/situacion-laboral` |

@@ -5,6 +5,7 @@ import {
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { MaxCurrentYear } from '../../common/validators/max-current-year.decorator';
+import { ANIO_EGRESO_MIN, ANIO_INGRESO_MIN } from '../../common/constants/limites-anio';
 
 export class AutorizacionesDto {
   @IsBoolean() estadisticas: boolean;
@@ -91,7 +92,7 @@ export class CreateEgresadoEtapa1Dto {
 
   @IsOptional()
   @IsNumber()
-  @Min(1980)
+  @Min(ANIO_INGRESO_MIN)
   @MaxCurrentYear()
   anio_ingreso?: number;
 
@@ -99,7 +100,7 @@ export class CreateEgresadoEtapa1Dto {
   @IsIn(['Enero - Junio', 'Agosto - Diciembre', 'No lo recuerdo'])
   periodo_ingreso?: string;
   
-  @IsNumber() @Min(1990) @MaxCurrentYear() anio_egreso: number;
+  @IsNumber() @Min(ANIO_EGRESO_MIN) @MaxCurrentYear() anio_egreso: number;
   @IsString() @IsNotEmpty() estatus_titulacion: string;
   @IsString() @IsNotEmpty() nivel_ingles: string;
   @IsString() @IsNotEmpty() situacion_laboral: string;
