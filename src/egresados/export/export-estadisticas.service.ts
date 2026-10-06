@@ -137,10 +137,20 @@ export class ExportEstadisticasService {
     return 46;
   }
 
-  private pdfSection(doc: any, titulo: string, y: number, onNewPage?: () => number): number {
+  // El título solo se dibuja si debajo caben también el encabezado de la
+  // tabla y MIN_FILAS filas; si no, la sección completa empieza en la página
+  // siguiente. Así un título nunca queda solo al pie, ni con una o dos filas
+  // sueltas que hacen parecer que la sección terminó ahí. MIN_FILAS = 3 es el
+  // mismo criterio que usa el pdfSection() de Inclusión, para que todos los
+  // reportes corten igual. rowHeight debe ser el que se le pase a pdfTable().
+  private pdfSection(doc: any, titulo: string, y: number, onNewPage?: () => number, rowHeight: number = 26): number {
+    const TITULO_H = 14;
+    const HDR_H = 18;
+    const MIN_FILAS = 3;
+
     y += 6;
 
-    if (y + 40 > PAGE_MAX_Y) {
+    if (y + TITULO_H + HDR_H + MIN_FILAS * rowHeight > PAGE_MAX_Y) {
       if (onNewPage) y = onNewPage();
       y += 6;
     }
@@ -156,10 +166,24 @@ export class ExportEstadisticasService {
     return 68;
   }
 
+  // Pie de la última página. Va por debajo del margen inferior (el contenido
+  // llega hasta PAGE_MAX_Y), así que mientras se escribe se pone
+  // margins.bottom = 0: si no, PDFKit ve el texto fuera del área de contenido
+  // y lo manda a una página nueva, que salía en blanco con solo el pie. Mismo
+  // patrón que pdfFooterTrayectoria() y el pie de Inclusión.
   private pdfFooter(doc: any, fecha: string): void {
-    doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
-      .text(`Generado el ${fecha}`, MARGIN_X, 570, { continued: true })
-      .text('Sistema de Seguimiento de Egresados — ITD', { align: 'right' });
+    const originalBottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    try {
+      const footerY = doc.page.height - 25;
+      const usableWidth = doc.page.width - MARGIN_X * 2;
+      doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
+        .text(`Generado el ${fecha}`, MARGIN_X, footerY, { width: usableWidth, align: 'left', lineBreak: false });
+      doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
+        .text('Sistema de Seguimiento de Egresados — ITD', MARGIN_X, footerY, { width: usableWidth, align: 'right', lineBreak: false });
+    } finally {
+      doc.page.margins.bottom = originalBottom;
+    }
   }
 
   private pdfDoc(): any {
@@ -2417,13 +2441,6 @@ export class ExportEstadisticasService {
     );
 
     // 6) País de Nacimiento (dónde nació, no nacionalidad). Todos los países.
-    // pdfSection solo reserva 40 pt: cerca del final de la página deja el
-    // título solo y manda la tabla a la siguiente. Aquí se pide lugar para
-    // título + encabezado + una fila antes de dibujar el título.
-    const conLugarParaTabla = (yActual: number): number =>
-      yActual + 6 + 14 + 18 + 26 > PAGE_MAX_Y ? onNewPage() : yActual;
-
-    y = conLugarParaTabla(y);
     y = this.pdfSection(doc, 'País de Nacimiento — Indicadores', y, onNewPage);
     y = this.pdfTable(
       doc,
@@ -2436,7 +2453,6 @@ export class ExportEstadisticasService {
       [300, 150], MARGIN_X, y, onNewPage,
     );
 
-    y = conLugarParaTabla(y);
     y = this.pdfSection(doc, 'Egresados por País de Nacimiento', y, onNewPage);
     y = this.pdfTable(
       doc,

@@ -233,7 +233,9 @@ export class ExportService {
                 y += ROW_H;
 
                 // ── Nueva página ─────────────────────────────────────────────────
-                if (y > 530) {
+                // Solo si quedan filas: si la última fila llenó la hoja, no se
+                // abre otra que saldría con puro encabezado.
+                if (y > 530 && index < egresados.length - 1) {
                     doc.addPage({
                         size: 'A4',
                         layout: 'landscape',
@@ -260,9 +262,16 @@ export class ExportService {
             });
 
             // ── Footer ───────────────────────────────────────────────────────────
+            // Va por debajo del margen inferior: con margins.bottom en su valor
+            // normal PDFKit lo manda a una página nueva en blanco.
+            const bottomOriginal = doc.page.margins.bottom;
+            doc.page.margins.bottom = 0;
+            const footerY = doc.page.height - 25;
             doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
-                .text(`Generado el ${fechaGeneracion}`, 28, 570, { continued: true })
-                .text(`Total de registros: ${egresados.length}`, { align: 'right' });
+                .text(`Generado el ${fechaGeneracion}`, 28, footerY, { width: W, align: 'left', lineBreak: false });
+            doc.fontSize(7).fillColor('#9CA3AF').font('Helvetica')
+                .text(`Total de registros: ${egresados.length}`, 28, footerY, { width: W, align: 'right', lineBreak: false });
+            doc.page.margins.bottom = bottomOriginal;
 
             doc.end();
         });
