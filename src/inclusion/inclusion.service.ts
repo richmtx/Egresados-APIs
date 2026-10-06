@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { UsuariosService } from '../usuarios/usuarios.service';
+import { VARIANTES_MEXICO_SQL } from '../common/constants/pais-nacimiento';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REPORTES DE INCLUSIÓN — datos personales SENSIBLES (LFPDPPP)
@@ -70,8 +71,7 @@ const ES_AFROMEXICANO = respuestaSi('id_afromexicano');
 const NACIDO_FUERA_DE_MEXICO = `
   e.pais_nacimiento IS NOT NULL
   AND TRIM(e.pais_nacimiento) <> ''
-  AND LOWER(TRIM(e.pais_nacimiento)) NOT IN
-      ('mexico', 'méxico', 'mx', 'mex', 'méx', 'estados unidos mexicanos')`;
+  AND LOWER(TRIM(e.pais_nacimiento)) NOT IN ${VARIANTES_MEXICO_SQL}`;
 
 export interface DecadaCobertura {
   etiqueta: string;

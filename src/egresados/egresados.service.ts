@@ -8,6 +8,7 @@ import { Egresado } from './egresados.entity';
 import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
+import { VARIANTES_MEXICO_SQL } from '../common/constants/pais-nacimiento';
 
 interface IdentidadResuelta {
   id_indigena: number;
@@ -1576,6 +1577,65 @@ export class EgresadosService {
       extranjerosDetalle,
       movilidadPorAnio,
       movilidadPorCarrera,
+    };
+  }
+
+  // DISTRIBUCIÓN GEOGRÁFICA: país de nacimiento
+  // El dato es dónde nació la persona, NO su nacionalidad.
+  // Igual que el resto de la pantalla, cuenta a todos los egresados: ninguna
+  // consulta de distribución filtra por autorizo_estadisticas.
+  // Sin umbral ni agrupación de países pequeños, por decisión explícita.
+  async getPaisNacimiento(carrera?: string, anio?: number): Promise<any> {
+
+    const params: any[] = [];
+    const conditions: string[] = ['1=1'];
+
+    if (carrera) {
+      conditions.push(`c.nombre_carrera = ?`);
+      params.push(carrera);
+    }
+    if (anio) {
+      conditions.push(`e.anio_egreso = ?`);
+      params.push(anio);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+
+    const filas = await this.dataSource.query(`
+      SELECT
+        TRIM(e.pais_nacimiento)                                          AS pais,
+        COUNT(*)                                                         AS egresados,
+        MAX(LOWER(TRIM(e.pais_nacimiento)) IN ${VARIANTES_MEXICO_SQL})   AS es_mexico
+      FROM egresados e
+      LEFT JOIN carreras c ON e.carrera_id = c.id_carrera
+      ${where}
+      AND e.pais_nacimiento IS NOT NULL
+      AND TRIM(e.pais_nacimiento) != ''
+      GROUP BY TRIM(e.pais_nacimiento)
+      ORDER BY egresados DESC, pais ASC
+    `, params);
+
+    // mysql2 devuelve COUNT() como string: todo pasa por Number().
+    const conteos = filas.map((f: any) => ({
+      pais: f.pais as string,
+      egresados: Number(f.egresados),
+      esMexico: Number(f.es_mexico) === 1,
+    }));
+
+    const totalConDato = conteos.reduce((s: number, f: any) => s + f.egresados, 0);
+    const nacidosEnMexico = conteos
+      .filter((f: any) => f.esMexico)
+      .reduce((s: number, f: any) => s + f.egresados, 0);
+
+    return {
+      total_con_dato: totalConDato,
+      nacidos_en_mexico: nacidosEnMexico,
+      nacidos_en_extranjero: totalConDato - nacidosEnMexico,
+      paises: conteos.map((f: any) => ({
+        pais: f.pais,
+        egresados: f.egresados,
+        porcentaje: totalConDato ? Math.round((f.egresados * 1000) / totalConDato) / 10 : 0,
+      })),
     };
   }
 

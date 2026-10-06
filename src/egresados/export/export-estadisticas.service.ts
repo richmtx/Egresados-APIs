@@ -2333,6 +2333,7 @@ export class ExportEstadisticasService {
 
   async exportarGeografiaPdf(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getDistribucionGeografica(carrera, anio);
+    const nac = await this.egresadosService.getPaisNacimiento(carrera, anio);
     const fecha = this.fechaStr();
     const filtros = this.filtroDesc(carrera, anio);
     const doc = this.pdfDoc();
@@ -2415,6 +2416,39 @@ export class ExportEstadisticasService {
       [260, 70, 110, 110], MARGIN_X, y, onNewPage,
     );
 
+    // 6) País de Nacimiento (dónde nació, no nacionalidad). Todos los países.
+    // pdfSection solo reserva 40 pt: cerca del final de la página deja el
+    // título solo y manda la tabla a la siguiente. Aquí se pide lugar para
+    // título + encabezado + una fila antes de dibujar el título.
+    const conLugarParaTabla = (yActual: number): number =>
+      yActual + 6 + 14 + 18 + 26 > PAGE_MAX_Y ? onNewPage() : yActual;
+
+    y = conLugarParaTabla(y);
+    y = this.pdfSection(doc, 'País de Nacimiento — Indicadores', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['Indicador', 'Valor'],
+      [
+        ['Total con Dato de País de Nacimiento', String(nac.total_con_dato)],
+        ['Nacidos en México', String(nac.nacidos_en_mexico)],
+        ['Nacidos en el Extranjero', String(nac.nacidos_en_extranjero)],
+      ],
+      [300, 150], MARGIN_X, y, onNewPage,
+    );
+
+    y = conLugarParaTabla(y);
+    y = this.pdfSection(doc, 'Egresados por País de Nacimiento', y, onNewPage);
+    y = this.pdfTable(
+      doc,
+      ['País de Nacimiento', 'Egresados', '%'],
+      (nac.paises || []).map((r: any) => [
+        r.pais || '—',
+        String(r.egresados),
+        `${(+(r.porcentaje) || 0).toFixed(1)}%`,
+      ]),
+      [290, 100, 100], MARGIN_X, y, onNewPage,
+    );
+
     this.pdfFooter(doc, fecha);
     doc.end();
     return bufPromise;
@@ -2422,6 +2456,7 @@ export class ExportEstadisticasService {
 
   async exportarGeografiaExcel(carrera?: string, anio?: number): Promise<Buffer> {
     const data = await this.egresadosService.getDistribucionGeografica(carrera, anio);
+    const nac = await this.egresadosService.getPaisNacimiento(carrera, anio);
     const fecha = this.fechaStr();
     const filtros = this.filtroDesc(carrera, anio);
     const { wb, addSheet } = this.makeWorkbook('Distribución Geográfica', filtros, fecha, () => 0);
@@ -2506,6 +2541,26 @@ export class ExportEstadisticasService {
           r.fuera_durango,
           +(+(r.pct_fuera_durango) || 0).toFixed(2),
         ]),
+        4,
+      );
+    }
+
+    // 6) País de Nacimiento (dónde nació, no nacionalidad). Todos los países.
+    {
+      const ws = addSheet('Nacimiento - Indicadores', 2, 'País de Nacimiento — Indicadores');
+      ws.columns = [{ key: 'ind', width: 40 }, { key: 'val', width: 20 }];
+      this.excelTable(ws, ['Indicador', 'Valor'], [
+        ['Total con Dato de País de Nacimiento', nac.total_con_dato],
+        ['Nacidos en México', nac.nacidos_en_mexico],
+        ['Nacidos en el Extranjero', nac.nacidos_en_extranjero],
+      ], 4);
+    }
+
+    {
+      const ws = addSheet('País de Nacimiento', 3, 'Egresados por País de Nacimiento');
+      ws.columns = [{ key: 'p', width: 30 }, { key: 't', width: 15 }, { key: 'pct', width: 15 }];
+      this.excelTable(ws, ['País de Nacimiento', 'Egresados', '%'],
+        (nac.paises || []).map((r: any) => [r.pais || '—', r.egresados, r.porcentaje]),
         4,
       );
     }

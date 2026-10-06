@@ -424,6 +424,17 @@ export class EgresadosController {
     return this.egresadosService.getDistribucionGeografica(carrera, anio ? Number(anio) : undefined);
   }
 
+  // Solo admin: con carrera + año se llega a conteos de 1, igual que el
+  // mismo dato en /inclusion.
+  @Roles('admin')
+  @Get('distribucion-geografica/pais-nacimiento')
+  getPaisNacimiento(
+    @Query('carrera') carrera?: string,
+    @Query('anio') anio?: string,
+  ) {
+    return this.egresadosService.getPaisNacimiento(carrera, anio ? Number(anio) : undefined);
+  }
+
   @Get('trayectoria')
   getTrayectoria(
     @Query('carrera') carrera?: string,

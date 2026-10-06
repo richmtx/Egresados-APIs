@@ -5,7 +5,7 @@ Backend NestJS. Base URL de desarrollo: `http://localhost:3000`
 > Fuente de verdad: los controladores, DTOs y servicios de `src/`. Si algo
 > de este archivo no coincide con el código, el código gana y hay que
 > corregir este archivo. El inventario exacto de rutas sale del log de
-> arranque (`[RouterExplorer] Mapped {...}`): hoy son **116 rutas**.
+> arranque (`[RouterExplorer] Mapped {...}`): hoy son **117 rutas**.
 
 ---
 
@@ -30,7 +30,7 @@ reportes se arman con `dataSource.query()` crudo, y ahí:
 
 Excepciones documentadas en cada endpoint: los servicios que pasan los
 agregados por `Number()` (dashboard, duplicados, empresas, `pendientes-revision`,
-`directorio.total`, filtros) y los endpoints que usan el repositorio de
+`directorio.total`, filtros, `distribucion-geografica/pais-nacimiento`) y los endpoints que usan el repositorio de
 TypeORM sobre columnas `boolean` (notificaciones, `GET /autorizaciones`),
 que sí devuelven `true`/`false`.
 
@@ -857,6 +857,44 @@ interface DistribucionGeografica {
   movilidadPorCarrera: { nombre_carrera: string; total: string; fuera_durango: string; pct_fuera_durango: string }[];
 }
 ```
+
+---
+
+### Distribución geográfica — país de nacimiento
+
+```
+GET /egresados/distribucion-geografica/pais-nacimiento?carrera=Sistemas&anio=2022
+```
+
+**Auth:** Solo `admin` (es el único `GET` JSON de Distribución que el invitado no ve: responde `403`)
+**Query params opcionales:** `carrera`, `anio` (los mismos de `distribucion-geografica`)
+
+> El dato es **dónde nació** la persona (`egresados.pais_nacimiento`), **no
+> su nacionalidad**: alguien nacido en Houston de padres duranguenses es
+> mexicano. En el panel se rotula "País de nacimiento", nunca "Nacionalidad".
+
+**Respuesta 200:** todos los valores son **number** (pasan por `Number()`).
+
+```json
+{
+  "total_con_dato": 798,
+  "nacidos_en_mexico": 778,
+  "nacidos_en_extranjero": 20,
+  "paises": [
+    { "pais": "México", "egresados": 778, "porcentaje": 97.5 },
+    { "pais": "Canadá", "egresados": 6, "porcentaje": 0.8 }
+  ]
+}
+```
+
+- `total_con_dato`: egresados con `pais_nacimiento` no vacío (ni `NULL` ni solo espacios). Los que no tienen dato no aparecen en ningún conteo.
+- `paises`: **todos** los países, de mayor a menor (empates en orden alfabético). **Sin umbral de ocultamiento ni grupo "Otros"**, por decisión explícita.
+- `porcentaje`: sobre `total_con_dato`, con un decimal. Sin resultados: totales en `0` y `paises: []`.
+- Cuenta a **todos** los egresados, igual que el resto de `distribucion-geografica`: ninguna consulta de esa pantalla filtra por `autorizo_estadisticas`.
+- El campo es texto libre. Se agrupa por el texto recortado, sin distinguir mayúsculas ni acentos (collation `utf8mb4_0900_ai_ci`). `nacidos_en_mexico` reconoce las variantes de `VARIANTES_MEXICO_SQL` (`src/common/constants/pais-nacimiento.ts`), la misma lista que usa `nacidos_fuera_de_mexico` de `/inclusion/resumen`; una variante como `MX` cuenta como México pero sale en su propia fila de `paises`.
+- Es solo `admin` porque combinando `carrera` y `anio` se llega a conteos de 1; el mismo dato en `/inclusion/resumen` también es solo admin. A diferencia de Inclusión (solo quienes consintieron, umbral k = 3), aquí no hay umbral y cuentan todos.
+- El panel debe ocultar esta sección al rol `invitado`: la pantalla de Distribución sí la ve, pero esta petición le responde `403`.
+- Sale también en `distribucion-geografica/export/pdf` y `/export/excel` (ya eran solo admin), con los mismos filtros: dos secciones al final del PDF y dos hojas al final del Excel (`Nacimiento - Indicadores` y `País de Nacimiento`).
 
 ---
 
@@ -2429,6 +2467,7 @@ Si `foto_url` es `null`, el egresado no subió foto.
 | `DELETE /egresados/:id` | — | — | ✓ |
 | `GET /egresados/:id/resumen-eliminacion` | — | — | ✓ |
 | `GET /egresados/pendientes-revision` | — | — | ✓ |
+| `GET /egresados/distribucion-geografica/pais-nacimiento` | — | — | ✓ |
 | `GET /egresados/export/pdf` y `/export/excel` | — | — | ✓ |
 | `GET /egresados/:id/export/pdf` | — | — | ✓ |
 | `GET /egresados/*/export/*` (18 exports de reportes) | — | — | ✓ |
