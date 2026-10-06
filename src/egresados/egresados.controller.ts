@@ -1,7 +1,7 @@
 import {
   Controller, Get, Post, Patch, Body, Param, Query,
   ParseIntPipe, Delete, UseInterceptors, UploadedFile, BadRequestException, Res, UseGuards,
-  DefaultValuePipe,
+  DefaultValuePipe, Req,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -605,8 +605,14 @@ export class EgresadosController {
   }
 
   @Roles('admin')
+  @Get(':id/resumen-eliminacion')
+  getResumenEliminacion(@Param('id', ParseIntPipe) id: number) {
+    return this.egresadosService.getResumenEliminacion(id);
+  }
+
+  @Roles('admin')
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.egresadosService.remove(id);
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.egresadosService.remove(id, req.user.id_usuario);
   }
 }

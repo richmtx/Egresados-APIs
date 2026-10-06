@@ -5,7 +5,7 @@ Backend NestJS. Base URL de desarrollo: `http://localhost:3000`
 > Fuente de verdad: los controladores, DTOs y servicios de `src/`. Si algo
 > de este archivo no coincide con el código, el código gana y hay que
 > corregir este archivo. El inventario exacto de rutas sale del log de
-> arranque (`[RouterExplorer] Mapped {...}`): hoy son **115 rutas**.
+> arranque (`[RouterExplorer] Mapped {...}`): hoy son **116 rutas**.
 
 ---
 
@@ -580,9 +580,70 @@ DELETE /egresados/:id
 { "mensaje": "Egresado eliminado correctamente." }
 ```
 
-> Borra explícitamente todas sus filas hijas (autorizaciones,
-> certificaciones, habilidades, colaboraciones, datos de inclusión,
-> trayectoria, notificaciones) y la foto del disco si existe. `404` si no existe.
+> Todo va en **una transacción**: borra explícitamente todas sus filas hijas
+> (autorizaciones, certificaciones, habilidades, colaboraciones, datos de
+> inclusión, trayectoria, notificaciones y los pares de
+> `duplicados_candidatos` donde aparece), después al egresado y al final
+> escribe la bitácora (`eliminar_egresado`, sección `egresados`) a nombre de
+> `req.user.id_usuario`. Si algo falla, no se borra nada ni queda bitácora.
+> La foto se quita del disco después del commit. `404` si no existe.
+>
+> **El panel NO debe registrar este borrado con `POST /usuarios/historial`**:
+> la API ya lo hace, y solo cuando el borrado sí ocurrió.
+>
+> `duplicados_fusiones` no se toca: si el egresado borrado era el conservado
+> de una fusión, esa fila queda con `id_egresado_conservado = null` (FK
+> `ON DELETE SET NULL`), pero conserva `nombre_conservado` y el snapshot del
+> eliminado.
+
+---
+
+### Resumen previo a eliminar
+
+```
+GET /egresados/:id/resumen-eliminacion
+```
+
+**Auth:** Solo `admin`
+**Uso:** lo que el modal de confirmación muestra antes de llamar al `DELETE`. Solo lectura, una sola consulta.
+
+**Respuesta 200:** todos los conteos son **number** y los avisos **boolean** reales (pasan por `Number()`).
+
+```json
+{
+  "egresado": {
+    "id_egresado": 4,
+    "nombre_completo": "Carolina Mendoza López",
+    "numero_control": "21040123",
+    "carrera": "Ingeniería Industrial en Mecánica",
+    "anio_egreso": 2026,
+    "empresa": "Grupo Lala",
+    "situacion_laboral": "Empleado en el sector privado"
+  },
+  "perdidas": {
+    "habilidades": 2,
+    "colaboraciones": 2,
+    "certificaciones": 2,
+    "estudios": 0,
+    "emprendimientos": 0,
+    "proyectos_sociales": 0,
+    "datos_sensibles": true
+  },
+  "avisos": {
+    "en_par_duplicado_pendiente": true,
+    "empresa_catalogo": null
+  }
+}
+```
+
+- `numero_control`: `null` si está vacío (etapa 2 sin completar); `'Desconocido'` sale tal cual.
+- `empresa`: texto recortado; `null` si no tiene. `situacion_laboral` viene **siempre**, para mostrarla cuando `empresa` es `null`.
+- `habilidades` y `colaboraciones` **incluyen** las de texto libre (`habilidades_otro`, `colaboracion_otro`): es el total de filas que se pierden.
+- `datos_sensibles`: tiene filas en `egresado_discapacidad` o `egresado_identidad`.
+- `en_par_duplicado_pendiente`: aparece en `duplicados_candidatos` con estado `pendiente`.
+- `empresa_catalogo`: nombre canónico si el egresado tiene `empresa_id`; `null` si no.
+
+`404` si el egresado no existe.
 
 ---
 
@@ -1505,7 +1566,10 @@ Todo el grupo va en una sola transacción. Los hijos (autorizaciones,
 habilidades, trayectoria, datos de inclusión, etc.) se reasignan al
 conservado; los campos vacíos del conservado se completan con los del
 eliminado. En `autorizaciones` gana la respuesta **más restrictiva**. Cada
-eliminado deja un registro en la bitácora con un snapshot completo.
+eliminado deja un registro en la bitácora con un snapshot completo y con el
+nombre del conservado (`nombre_conservado`, migración
+`014_fusiones_nombre_conservado.sql`), para que la fila se entienda aunque
+después se borre al conservado.
 
 **Respuesta 200:**
 ```json
@@ -1548,8 +1612,8 @@ interface ListadoFusiones {
 
 interface Fusion {
   id_fusion: number;
-  id_egresado_conservado: number | null;
-  nombre_conservado: string | null;
+  id_egresado_conservado: number | null;       // null si el conservado se borró después
+  nombre_conservado: string | null;            // nombre actual; si ya no existe, el que tenía al fusionar
   id_egresado_eliminado: number;
   nombre_eliminado: string;
   correo_eliminado: string;
@@ -2363,6 +2427,7 @@ Si `foto_url` es `null`, el egresado no subió foto.
 | `POST /usuarios/historial` | — | ✓ | ✓ |
 | `PATCH /egresados/:id/revisado` | — | — | ✓ |
 | `DELETE /egresados/:id` | — | — | ✓ |
+| `GET /egresados/:id/resumen-eliminacion` | — | — | ✓ |
 | `GET /egresados/pendientes-revision` | — | — | ✓ |
 | `GET /egresados/export/pdf` y `/export/excel` | — | — | ✓ |
 | `GET /egresados/:id/export/pdf` | — | — | ✓ |

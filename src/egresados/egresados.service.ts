@@ -69,6 +69,13 @@ export class EgresadosService {
     await exec.query(`DELETE FROM egresado_emprendimientos    WHERE id_egresado = ?`, [id]);
     await exec.query(`DELETE FROM egresado_proyectos_sociales WHERE id_egresado = ?`, [id]);
     await exec.query(`DELETE FROM notificaciones          WHERE id_egresado = ?`, [id]);
+    // Pares de duplicados: sin uno de los dos egresados el par ya no existe.
+    // Explícito, sin depender solo del CASCADE. duplicados_fusiones NO se toca:
+    // es bitácora (su FK al conservado es ON DELETE SET NULL).
+    await exec.query(
+      `DELETE FROM duplicados_candidatos WHERE id_egresado_a = ? OR id_egresado_b = ?`,
+      [id, id],
+    );
     await exec.query(`DELETE FROM egresados               WHERE id_egresado = ?`, [id]);
   }
 
@@ -758,23 +765,113 @@ export class EgresadosService {
   }
 
   // REMOVE
-  async remove(id: number): Promise<{ mensaje: string }> {
-    const existe = await this.egresadosRepo.findOne({ where: { id_egresado: id } });
-    if (!existe) {
-      throw new NotFoundException(`No se encontró el egresado con id ${id}.`);
+  // Una sola transacción: hijos + egresado + bitácora. La bitácora se escribe
+  // DESPUÉS del borrado y con el mismo QueryRunner, así que solo queda
+  // registrado un borrado que sí ocurrió (y si la bitácora falla, el borrado
+  // se revierte). La foto se quita del disco hasta después del commit.
+  async remove(id: number, idAdmin: number): Promise<{ mensaje: string }> {
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    let fotoUrl: string | null = null;
+    try {
+      const [existe] = await qr.query(
+        `SELECT nombre_completo, foto_url FROM egresados
+         WHERE id_egresado = ? FOR UPDATE`,
+        [id],
+      );
+      if (!existe) {
+        throw new NotFoundException(`No se encontró el egresado con id ${id}.`);
+      }
+      fotoUrl = existe.foto_url;
+
+      await this.borrarEgresadoCompleto(id, qr);
+
+      await qr.query(
+        `INSERT INTO historial_actividad (id_usuario, accion, descripcion, seccion)
+         VALUES (?, 'eliminar_egresado', ?, 'egresados')`,
+        [idAdmin, `Eliminó egresado: ${existe.nombre_completo} (ID ${id})`],
+      );
+
+      await qr.commitTransaction();
+    } catch (err) {
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
     }
 
-    await this.borrarEgresadoCompleto(id);
-
-    if (existe.foto_url) {
+    if (fotoUrl) {
       try {
-        await unlink(join(process.cwd(), existe.foto_url));
+        await unlink(join(process.cwd(), fotoUrl));
       } catch {
         // Archivo ya no existe en disco — no es error crítico
       }
     }
 
     return { mensaje: 'Egresado eliminado correctamente.' };
+  }
+
+  // RESUMEN DE ELIMINACIÓN
+  // Lo que el modal de confirmación muestra ANTES de borrar. Una sola
+  // consulta: los conteos van como subconsultas sobre índices de id_egresado.
+  async getResumenEliminacion(id: number) {
+    const [r] = await this.dataSource.query(
+      `SELECT
+         e.id_egresado, e.nombre_completo, e.anio_egreso,
+         NULLIF(TRIM(e.numero_control), '') AS numero_control,
+         NULLIF(TRIM(e.empresa), '')        AS empresa,
+         c.nombre_carrera                   AS carrera,
+         sl.situacion                       AS situacion_laboral,
+         emp.nombre                         AS empresa_catalogo,
+         (SELECT COUNT(*) FROM egresado_habilidades    x WHERE x.id_egresado = e.id_egresado)
+           + (SELECT COUNT(*) FROM habilidades_otro    x WHERE x.id_egresado = e.id_egresado) AS habilidades,
+         (SELECT COUNT(*) FROM egresado_colaboraciones x WHERE x.id_egresado = e.id_egresado)
+           + (SELECT COUNT(*) FROM colaboracion_otro   x WHERE x.id_egresado = e.id_egresado) AS colaboraciones,
+         (SELECT COUNT(*) FROM certificaciones             x WHERE x.id_egresado = e.id_egresado) AS certificaciones,
+         (SELECT COUNT(*) FROM egresado_estudios           x WHERE x.id_egresado = e.id_egresado) AS estudios,
+         (SELECT COUNT(*) FROM egresado_emprendimientos    x WHERE x.id_egresado = e.id_egresado) AS emprendimientos,
+         (SELECT COUNT(*) FROM egresado_proyectos_sociales x WHERE x.id_egresado = e.id_egresado) AS proyectos_sociales,
+         (EXISTS (SELECT 1 FROM egresado_discapacidad x WHERE x.id_egresado = e.id_egresado)
+           OR EXISTS (SELECT 1 FROM egresado_identidad x WHERE x.id_egresado = e.id_egresado)) AS datos_sensibles,
+         EXISTS (SELECT 1 FROM duplicados_candidatos d
+                 WHERE d.estado = 'pendiente'
+                   AND (d.id_egresado_a = e.id_egresado OR d.id_egresado_b = e.id_egresado)) AS en_par_duplicado_pendiente
+       FROM egresados e
+       LEFT JOIN carreras          c   ON e.carrera_id           = c.id_carrera
+       LEFT JOIN situacion_laboral sl  ON e.situacion_laboral_id = sl.id_situacion
+       LEFT JOIN empresas          emp ON e.empresa_id           = emp.id_empresa
+       WHERE e.id_egresado = ?`,
+      [id],
+    );
+    if (!r) throw new NotFoundException(`No se encontró el egresado con id ${id}.`);
+
+    // mysql2 devuelve COUNT() como string y EXISTS como 0/1 (a veces string).
+    return {
+      egresado: {
+        id_egresado: r.id_egresado,
+        nombre_completo: r.nombre_completo,
+        numero_control: r.numero_control,
+        carrera: r.carrera,
+        anio_egreso: r.anio_egreso,
+        empresa: r.empresa,
+        situacion_laboral: r.situacion_laboral,
+      },
+      perdidas: {
+        habilidades: Number(r.habilidades),
+        colaboraciones: Number(r.colaboraciones),
+        certificaciones: Number(r.certificaciones),
+        estudios: Number(r.estudios),
+        emprendimientos: Number(r.emprendimientos),
+        proyectos_sociales: Number(r.proyectos_sociales),
+        datos_sensibles: Number(r.datos_sensibles) === 1,
+      },
+      avisos: {
+        en_par_duplicado_pendiente: Number(r.en_par_duplicado_pendiente) === 1,
+        empresa_catalogo: r.empresa_catalogo ?? null,
+      },
+    };
   }
 
 

@@ -885,21 +885,23 @@ export class DuplicadosService {
 
     // Fusiones anteriores donde el eliminado era el conservado: se re-apuntan
     // al nuevo sobreviviente para no perder la cadena (la FK las pondría en NULL).
+    // El snapshot del nombre se mueve junto con el id.
     await qr.query(
-      `UPDATE duplicados_fusiones SET id_egresado_conservado = ? WHERE id_egresado_conservado = ?`,
-      [idConservado, idEliminado],
+      `UPDATE duplicados_fusiones SET id_egresado_conservado = ?, nombre_conservado = ?
+       WHERE id_egresado_conservado = ?`,
+      [idConservado, conservado.nombre_completo, idEliminado],
     );
 
     // PASO E — Bitácora, TODAVÍA antes del borrado.
     const insert = await qr.query(
       `INSERT INTO duplicados_fusiones
-         (id_egresado_conservado, id_egresado_eliminado,
+         (id_egresado_conservado, nombre_conservado, id_egresado_eliminado,
           nombre_eliminado, correo_eliminado, numero_control_eliminado,
           snapshot, hijos_reasignados, campos_completados,
           id_candidato, fusionado_por, notas)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        idConservado, idEliminado,
+        idConservado, conservado.nombre_completo, idEliminado,
         eliminado.nombre_completo, eliminado.correo, eliminado.numero_control ?? '',
         JSON.stringify(snapshot),
         JSON.stringify(hijosReasignados),
@@ -1017,7 +1019,8 @@ export class DuplicadosService {
 
     const [conteo] = await this.dataSource.query(`SELECT COUNT(*) AS total FROM duplicados_fusiones`);
     const filas: any[] = await this.dataSource.query(`
-      SELECT f.id_fusion, f.id_egresado_conservado, e.nombre_completo AS nombre_conservado,
+      SELECT f.id_fusion, f.id_egresado_conservado,
+             COALESCE(e.nombre_completo, f.nombre_conservado) AS nombre_conservado,
              f.id_egresado_eliminado, f.nombre_eliminado, f.correo_eliminado,
              f.numero_control_eliminado, f.hijos_reasignados, f.campos_completados,
              f.id_candidato, f.fusionado_por, f.fusionado_en, f.notas
@@ -1036,7 +1039,8 @@ export class DuplicadosService {
   // 7. DETALLE de una fusión, con el snapshot completo del eliminado.
   async getFusion(id: number) {
     const [f] = await this.dataSource.query(`
-      SELECT f.id_fusion, f.id_egresado_conservado, e.nombre_completo AS nombre_conservado,
+      SELECT f.id_fusion, f.id_egresado_conservado,
+             COALESCE(e.nombre_completo, f.nombre_conservado) AS nombre_conservado,
              f.id_egresado_eliminado, f.nombre_eliminado, f.correo_eliminado,
              f.numero_control_eliminado, f.hijos_reasignados, f.campos_completados,
              f.id_candidato, f.fusionado_por, f.fusionado_en, f.notas, f.snapshot
