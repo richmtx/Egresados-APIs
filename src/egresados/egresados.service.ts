@@ -9,6 +9,7 @@ import { CreateEgresadoEtapa1Dto } from './dto/create-egresado-etapa1.dto';
 import { CreateEgresadoEtapa2Dto } from './dto/create-egresado-etapa2.dto';
 import { NotificacionesService } from '../notificaciones/notificaciones.service';
 import { VARIANTES_MEXICO_SQL } from '../common/constants/pais-nacimiento';
+import { GRADOS_DISCAPACIDAD_VALIDOS } from '../common/constants/discapacidad';
 
 interface IdentidadResuelta {
   id_indigena: number;
@@ -19,6 +20,7 @@ interface IdentidadResuelta {
 
 interface DatosSensiblesResueltos {
   discapacidad: { id_dominio: number; id_grado: number }[];
+  discapacidad_otro: string | null;
   identidad: IdentidadResuelta | null;
 }
 
@@ -64,6 +66,7 @@ export class EgresadosService {
     // Datos sensibles de inclusión: se borran de forma explícita, sin depender
     // solo del ON DELETE CASCADE, para que nunca sobrevivan a su egresado.
     await exec.query(`DELETE FROM egresado_discapacidad   WHERE id_egresado = ?`, [id]);
+    await exec.query(`DELETE FROM discapacidad_otro       WHERE id_egresado = ?`, [id]);
     await exec.query(`DELETE FROM egresado_identidad      WHERE id_egresado = ?`, [id]);
     // Trayectoria profesional: también explícito, sin depender solo del CASCADE.
     await exec.query(`DELETE FROM egresado_estudios           WHERE id_egresado = ?`, [id]);
@@ -95,9 +98,16 @@ export class EgresadosService {
       return new Map(rows.map((r: any) => [r.clave, r[colId]]));
     };
 
+    // Desde la migración 015 solo llegan los dominios MARCADOS, cada uno con
+    // severidad real. La lista vacía es válida: no tiene dificultades.
     const discapacidad: { id_dominio: number; id_grado: number }[] = [];
     if (dto.discapacidad?.length) {
-      const dominios = await mapaClaves('discapacidad_dominios', 'id_dominio');
+      // Solo dominios activos: uno inactivo (autocuidado) o inexistente es 400.
+      const dominios: Map<string, number> = new Map(
+        (await this.dataSource.query(
+          `SELECT id_dominio, clave FROM discapacidad_dominios WHERE activo = 1`,
+        )).map((r: any) => [r.clave, r.id_dominio]),
+      );
       const grados = await mapaClaves('grados_dificultad', 'id_grado');
       const vistos = new Set<string>();
 
@@ -105,13 +115,18 @@ export class EgresadosService {
         const id_dominio = dominios.get(item.dominio);
         if (id_dominio === undefined) {
           throw new BadRequestException(
-            `Dominio de discapacidad no válido: "${item.dominio}".`,
+            `Dominio de discapacidad no válido o no disponible: "${item.dominio}".`,
           );
         }
-        const id_grado = grados.get(item.grado);
+        // sin_dificultad y no_declara siguen en el catálogo pero ya no se
+        // aceptan: "sin dificultad" es no marcar el dominio.
+        const id_grado = (GRADOS_DISCAPACIDAD_VALIDOS as readonly string[]).includes(item.grado)
+          ? grados.get(item.grado)
+          : undefined;
         if (id_grado === undefined) {
           throw new BadRequestException(
-            `Grado de dificultad no válido: "${item.grado}".`,
+            `Grado de dificultad no válido: "${item.grado}". ` +
+            `Debe ser uno de: ${GRADOS_DISCAPACIDAD_VALIDOS.join(', ')}.`,
           );
         }
         if (vistos.has(item.dominio)) {
@@ -123,6 +138,9 @@ export class EgresadosService {
         discapacidad.push({ id_dominio, id_grado });
       }
     }
+
+    // Texto de la opción "Otra": recortado; vacío = no se guarda.
+    const discapacidad_otro = dto.discapacidad_otro?.trim() || null;
 
     let identidad: IdentidadResuelta | null = null;
     if (dto.identidad) {
@@ -147,7 +165,7 @@ export class EgresadosService {
       };
     }
 
-    return { discapacidad, identidad };
+    return { discapacidad, discapacidad_otro, identidad };
   }
 
   // Resuelve las claves de estudios / emprendimientos / proyectos sociales a
@@ -508,7 +526,10 @@ export class EgresadosService {
       // ── Datos sensibles (solo con consentimiento explícito) ───────────────
       // Sin consentimiento: no se toca nada; las columnas de consentimiento
       // conservan su default (0 / NULL) y no se crea NINGUNA fila en
-      // egresado_discapacidad ni egresado_identidad.
+      // egresado_discapacidad, discapacidad_otro ni egresado_identidad.
+      // Con consentimiento y sin dominios marcados tampoco hay filas de
+      // discapacidad: eso significa "sin dificultades", y el egresado cuenta
+      // en el denominador de Inclusión por consintio_datos_sensibles = 1.
       if (sensibles) {
         await qr.query(
           `UPDATE egresados
@@ -523,6 +544,13 @@ export class EgresadosService {
             `INSERT INTO egresado_discapacidad (id_egresado, id_dominio, id_grado)
              VALUES (?, ?, ?)`,
             [id_egresado, d.id_dominio, d.id_grado],
+          );
+        }
+
+        if (sensibles.discapacidad_otro) {
+          await qr.query(
+            `INSERT INTO discapacidad_otro (id_egresado, descripcion) VALUES (?, ?)`,
+            [id_egresado, sensibles.discapacidad_otro],
           );
         }
 
@@ -835,6 +863,7 @@ export class EgresadosService {
          (SELECT COUNT(*) FROM egresado_emprendimientos    x WHERE x.id_egresado = e.id_egresado) AS emprendimientos,
          (SELECT COUNT(*) FROM egresado_proyectos_sociales x WHERE x.id_egresado = e.id_egresado) AS proyectos_sociales,
          (EXISTS (SELECT 1 FROM egresado_discapacidad x WHERE x.id_egresado = e.id_egresado)
+           OR EXISTS (SELECT 1 FROM discapacidad_otro x WHERE x.id_egresado = e.id_egresado)
            OR EXISTS (SELECT 1 FROM egresado_identidad x WHERE x.id_egresado = e.id_egresado)) AS datos_sensibles,
          EXISTS (SELECT 1 FROM duplicados_candidatos d
                  WHERE d.estado = 'pendiente'

@@ -6,6 +6,7 @@ import {
 import { Type, Transform } from 'class-transformer';
 import { MaxCurrentYear } from '../../common/validators/max-current-year.decorator';
 import { ANIO_EGRESO_MIN, ANIO_INGRESO_MIN } from '../../common/constants/limites-anio';
+import { DISCAPACIDAD_OTRO_MAX } from '../../common/constants/discapacidad';
 
 export class AutorizacionesDto {
   @IsBoolean() estadisticas: boolean;
@@ -16,11 +17,17 @@ export class AutorizacionesDto {
 // ── Datos de inclusión (datos personales SENSIBLES, LFPDPPP) ─────────────
 // Todos viajan como CLAVES de catálogo; el servicio resuelve clave → id.
 
+// Un elemento por dominio MARCADO (migración 015). Quien no tiene ninguna
+// dificultad manda la lista vacía.
 export class DiscapacidadRespuestaDto {
-  // clave de discapacidad_dominios (ver, oir, caminar, ...)
+  // clave de discapacidad_dominios con activo = 1 (ver, oir, caminar, ...).
+  // Que exista y esté activo lo valida el servicio contra la BD.
   @IsString() @IsNotEmpty() @MaxLength(20) dominio: string;
 
-  // clave de grados_dificultad (sin_dificultad, mucha_dificultad, ...)
+  // clave de grados_dificultad: solo poca_dificultad, mucha_dificultad o
+  // no_puedo (GRADOS_DISCAPACIDAD_VALIDOS). Se valida en el servicio, DESPUÉS
+  // de la puerta de consentimiento: sin consentimiento estos datos se ignoran,
+  // no se rechazan.
   @IsString() @IsNotEmpty() @MaxLength(20) grado: string;
 }
 
@@ -174,13 +181,23 @@ export class CreateEgresadoEtapa1Dto {
   @IsBoolean()
   consintio_datos_sensibles?: boolean;
 
-  // Máx. 6 = un elemento por dominio de discapacidad_dominios
+  // Solo los dominios marcados; vacía = sin dificultades. El tope real es el
+  // número de dominios activos (lo cuida el servicio: no se repiten y todos
+  // deben estar activos); 6 es solo la cota del catálogo completo.
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(6)
   @ValidateNested({ each: true })
   @Type(() => DiscapacidadRespuestaDto)
   discapacidad?: DiscapacidadRespuestaDto[];
+
+  // Texto libre de la opción "Otra" (tabla discapacidad_otro). Se guarda
+  // recortado y solo si no queda vacío. Igual que discapacidad, se ignora si
+  // consintio_datos_sensibles no es true.
+  @IsOptional()
+  @IsString()
+  @MaxLength(DISCAPACIDAD_OTRO_MAX)
+  discapacidad_otro?: string;
 
   @IsOptional()
   @ValidateNested()

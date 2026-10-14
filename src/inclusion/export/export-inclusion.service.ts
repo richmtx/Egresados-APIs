@@ -17,6 +17,15 @@ const COLOR_ALT_ARG = 'FFFDF2F6';
 const PAGE_MAX_Y = 550;
 const MARGIN_X = 28;
 
+// Forma de GET /inclusion/discapacidad-por-dominio (InclusionService).
+interface DominioDiscapacidad {
+  dominio: string;
+  pregunta: string;
+  total: number | null;
+  porcentaje: number | null;
+  grados: { descripcion: string; total: number | null; porcentaje: number | null }[];
+}
+
 @Injectable()
 export class ExportInclusionService {
   constructor(private readonly inclusionService: InclusionService) { }
@@ -37,6 +46,11 @@ export class ExportInclusionService {
   // la celda quedaba como texto aunque valNum() ya se estuviera llamando.
   private valNum(v: number | string | null | undefined): number | string {
     return v === null || v === undefined ? '—' : Number(v);
+  }
+
+  // Conteo con su porcentaje para el PDF: "12 (4.5%)". Oculto → "—".
+  private valPct(total: number | null, porcentaje: number | null): string {
+    return total === null ? '—' : `${total} (${porcentaje ?? 0}%)`;
   }
 
   private fechaStr(): string {
@@ -309,15 +323,24 @@ export class ExportInclusionService {
       ['Nacidos Fuera de México', this.val(k.nacidos_fuera_de_mexico)],
     ], [300, 150], MARGIN_X, y, onNewPage);
 
-    // 3) Discapacidad por dominio
-    const dominios = discapacidad.datos as { dominio: string; pregunta: string; grados: { descripcion: string; total: number | null }[] }[];
+    // 3) Discapacidad por dominio (solo dominios activos y grados con
+    // severidad real; porcentajes sobre quienes consintieron)
+    const dominios = discapacidad.datos as DominioDiscapacidad[];
     if (dominios.length > 0) {
-      y = this.pdfSection(doc, 'Discapacidad por Dominio', y, onNewPage, 30);
-      const headers = ['Dominio', ...dominios[0].grados.map(g => g.descripcion)];
-      const colWidths = [200, ...dominios[0].grados.map(() => (780 - 200) / dominios[0].grados.length)];
+      y = this.pdfSection(doc, `Discapacidad por Dominio (porcentajes sobre ${discapacidad.consintieron} egresados que consintieron)`, y, onNewPage, 30);
+      const headers = ['Dominio', 'Personas que lo marcaron', ...dominios[0].grados.map(g => g.descripcion)];
+      const colWidths = [220, 140, ...dominios[0].grados.map(() => (780 - 360) / dominios[0].grados.length)];
       y = this.pdfTable(doc, headers,
-        dominios.map(d => [d.pregunta, ...d.grados.map(g => this.val(g.total))]),
+        dominios.map(d => [d.pregunta, this.valPct(d.total, d.porcentaje), ...d.grados.map(g => this.valPct(g.total, g.porcentaje))]),
         colWidths, MARGIN_X, y, onNewPage, undefined, 30);
+    }
+
+    const otrosDisc = discapacidad.discapacidad_otro;
+    if (otrosDisc.length > 0) {
+      y = this.pdfSection(doc, 'Discapacidad — Otra (texto libre)', y, onNewPage);
+      y = this.pdfTable(doc, ['Descripción', 'Total'],
+        otrosDisc.map(o => [o.descripcion, String(o.total)]),
+        [500, 150], MARGIN_X, y, onNewPage);
     }
 
     // 4) Identidad por pregunta
@@ -402,14 +425,30 @@ export class ExportInclusionService {
       ], 5);
     }
 
-    // 3) Discapacidad por dominio
-    const dominios = discapacidad.datos as { dominio: string; pregunta: string; grados: { descripcion: string; total: number | null }[] }[];
+    // 3) Discapacidad por dominio: conteo y % (sobre quienes consintieron)
+    // en columnas separadas para que ambas queden numéricas.
+    const dominios = discapacidad.datos as DominioDiscapacidad[];
     if (dominios.length > 0) {
-      const cols = 1 + dominios[0].grados.length;
-      const ws = addSheet('Discapacidad', cols, 'Discapacidad por Dominio');
-      ws.columns = [{ key: 'dominio', width: 34 }, ...dominios[0].grados.map((_, i) => ({ key: `g${i}`, width: 20 }))];
-      this.excelTable(ws, ['Dominio', ...dominios[0].grados.map(g => g.descripcion)],
-        dominios.map(d => [d.pregunta, ...d.grados.map(g => this.valNum(g.total))]), 5);
+      const grados = dominios[0].grados;
+      const cols = 3 + grados.length * 2;
+      const ws = addSheet('Discapacidad', cols, `Discapacidad por Dominio — % sobre ${discapacidad.consintieron} egresados que consintieron`);
+      ws.columns = [
+        { key: 'dominio', width: 34 }, { key: 'personas', width: 16 }, { key: 'pct', width: 10 },
+        ...grados.flatMap((_, i) => [{ key: `g${i}`, width: 18 }, { key: `p${i}`, width: 10 }]),
+      ];
+      this.excelTable(ws,
+        ['Dominio', 'Personas que lo marcaron', '%', ...grados.flatMap(g => [g.descripcion, '%'])],
+        dominios.map(d => [
+          d.pregunta, this.valNum(d.total), this.valNum(d.porcentaje),
+          ...d.grados.flatMap(g => [this.valNum(g.total), this.valNum(g.porcentaje)]),
+        ]), 5);
+    }
+
+    const otrosDisc = discapacidad.discapacidad_otro;
+    if (otrosDisc.length > 0) {
+      const ws = addSheet('Discapacidad Otra', 2, 'Discapacidad — Otra (texto libre)');
+      ws.columns = [{ key: 'desc', width: 60 }, { key: 't', width: 14 }];
+      this.excelTable(ws, ['Descripción', 'Total'], otrosDisc.map(o => [o.descripcion, o.total]), 5);
     }
 
     // 4) Identidad por pregunta + lenguas

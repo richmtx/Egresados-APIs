@@ -247,8 +247,9 @@ foto: <archivo>                                  ← opcional, max 2MB, jpg/png/
 | `autorizaciones.estadisticas` | boolean | ✓ | |
 | `autorizaciones.contacto` | boolean | ✓ | |
 | `autorizaciones.eventos` | boolean | ✓ | |
-| `consintio_datos_sensibles` | boolean | — | Puerta de consentimiento (LFPDPPP). Si no es `true`, `discapacidad` e `identidad` se **ignoran por completo** |
-| `discapacidad` | `DiscapacidadRespuesta[]` | — | Máx. 6 (uno por dominio, sin repetir) |
+| `consintio_datos_sensibles` | boolean | — | Puerta de consentimiento (LFPDPPP). Si no es `true`, `discapacidad`, `discapacidad_otro` e `identidad` se **ignoran por completo** (ni se validan contra catálogo ni se guardan) |
+| `discapacidad` | `DiscapacidadRespuesta[]` | — | **Solo los dominios marcados**, sin repetir. Lista vacía (o ausente) = sin dificultades: no se guarda ninguna fila |
+| `discapacidad_otro` | string | — | Máx. 200. Texto de la opción "Otra"; se guarda recortado en `discapacidad_otro` solo si no queda vacío |
 | `identidad` | `Identidad` | — | |
 | `estudios` | `EstudioPosterior[]` | — | Máx. 5 |
 | `emprendimientos` | `Emprendimiento[]` | — | Máx. 5 |
@@ -266,9 +267,12 @@ contra la BD. Valores actuales:
 sin escribir nada.
 
 ```typescript
+// Migración 015: una sola pregunta; se mandan solo los dominios marcados.
 interface DiscapacidadRespuesta {
-  dominio: string;          // clave de /discapacidad-dominios (máx. 20)
-  grado: string;            // clave de /grados-dificultad (máx. 20)
+  dominio: string;  // clave de /discapacidad-dominios con activo = 1.
+                    // Inactivo (autocuidado) o inexistente → 400
+  grado: string;    // poca_dificultad | mucha_dificultad | no_puedo.
+                    // sin_dificultad, no_declara u otro → 400
 }
 
 interface Identidad {
@@ -639,7 +643,7 @@ GET /egresados/:id/resumen-eliminacion
 - `numero_control`: `null` si está vacío (etapa 2 sin completar); `'Desconocido'` sale tal cual.
 - `empresa`: texto recortado; `null` si no tiene. `situacion_laboral` viene **siempre**, para mostrarla cuando `empresa` es `null`.
 - `habilidades` y `colaboraciones` **incluyen** las de texto libre (`habilidades_otro`, `colaboracion_otro`): es el total de filas que se pierden.
-- `datos_sensibles`: tiene filas en `egresado_discapacidad` o `egresado_identidad`.
+- `datos_sensibles`: tiene filas en `egresado_discapacidad`, `discapacidad_otro` o `egresado_identidad`.
 - `en_par_duplicado_pendiente`: aparece en `duplicados_candidatos` con estado `pendiente`.
 - `empresa_catalogo`: nombre canónico si el egresado tiene `empresa_id`; `null` si no.
 
@@ -1257,7 +1261,10 @@ GET /inclusion/discapacidad-por-dominio
 
 **Auth:** Solo `admin`
 
-**Respuesta 200:** rejilla completa dominio × grado (todas las celdas aparecen).
+**Respuesta 200:** rejilla **dominios activos × grados con severidad**
+(`poca_dificultad`, `mucha_dificultad`, `no_puedo`); todas las celdas
+aparecen. Aquí **todo es number** (pasa por `Number()`), a diferencia de los
+otros reportes del módulo.
 
 ```json
 {
@@ -1267,11 +1274,43 @@ GET /inclusion/discapacidad-por-dominio
     {
       "dominio": "ver",
       "pregunta": "Ver, aun usando lentes",
-      "grados": [ { "grado": "sin_dificultad", "descripcion": "No tengo dificultad", "total": "295" } ]
+      "total": 14,
+      "porcentaje": 2.9,
+      "grados": [
+        { "grado": "poca_dificultad", "descripcion": "Lo hago con poca dificultad", "total": 3, "porcentaje": 0.6 },
+        { "grado": "mucha_dificultad", "descripcion": "Lo hago con mucha dificultad", "total": 7, "porcentaje": 1.5 },
+        { "grado": "no_puedo", "descripcion": "No puedo hacerlo", "total": null, "porcentaje": null }
+      ]
     }
-  ]
+  ],
+  "consintieron": 479,
+  "discapacidad_otro": [ { "descripcion": "Dificultad para leer textos largos", "total": 1 } ]
 }
 ```
+
+**Modelo de datos (migración 015).** `egresado_discapacidad` guarda **solo
+los dominios que el egresado marcó**, siempre con severidad real. Quien
+consintió y no marcó nada **no tiene filas** y es un dato válido ("sin
+dificultades"). Por eso:
+
+- **El denominador es `consintieron`** (`consintio_datos_sensibles = 1`, sin
+  umbral), nunca "quienes tienen filas". Todo `porcentaje` es sobre esa base,
+  con un decimal; si el conteo está oculto, el porcentaje también es `null`.
+- `total` del dominio = personas que lo marcaron con cualquier grado. Lleva su
+  propio umbral (sale de su propia consulta, no de sumar celdas).
+- Solo salen dominios con `discapacidad_dominios.activo = 1` (autocuidado
+  está en 0). El filtro es por la columna, no por clave: si se reactiva,
+  vuelve a salir solo.
+- `sin_dificultad` y `no_declara` siguen en `grados_dificultad` pero ya no se
+  escriben ni se reportan. Las filas con esos grados que dejó la semilla vieja
+  se ignoran.
+- `personas_con_discapacidad` (resumen, por carrera, por año) = al menos un
+  dominio **activo** con grado `cuenta_discapacidad = 1` (`mucha_dificultad`,
+  `no_puedo`). La opción "Otra" no tiene grado y por sí sola no cuenta.
+- `discapacidad_otro`: textos libres de la opción "Otra" (solo de quienes
+  consintieron), agrupados con su conteo, de mayor a menor. Mismo criterio que
+  `lengua_indigena`: conteo global, **sin umbral**, `total` number, nunca dice
+  de quién es.
 
 ---
 
@@ -1384,7 +1423,7 @@ DELETE /inclusion/consentimiento/:id
 ```
 
 **Auth:** Solo `admin`
-Borra las filas de `egresado_discapacidad` y `egresado_identidad` y pone el
+Borra las filas de `egresado_discapacidad`, `discapacidad_otro` y `egresado_identidad` y pone el
 consentimiento en 0, **sin** borrar al egresado. Queda auditado en el
 historial (`retirar_consentimiento`).
 
@@ -1603,7 +1642,11 @@ POST /duplicados/fusionar
 Todo el grupo va en una sola transacción. Los hijos (autorizaciones,
 habilidades, trayectoria, datos de inclusión, etc.) se reasignan al
 conservado; los campos vacíos del conservado se completan con los del
-eliminado. En `autorizaciones` gana la respuesta **más restrictiva**. Cada
+eliminado. En `autorizaciones` gana la respuesta **más restrictiva**. La
+respuesta de discapacidad (`egresado_discapacidad` + `discapacidad_otro`) se
+trata como un bloque: si el conservado consintió, se queda la suya entera
+(aunque no tenga filas, que significa "sin dificultades") y no se le mezclan
+dominios del eliminado; si no consintió, se le pasa la del eliminado. Cada
 eliminado deja un registro en la bitácora con un snapshot completo y con el
 nombre del conservado (`nombre_conservado`, migración
 `014_fusiones_nombre_conservado.sql`), para que la fila se entienda aunque
@@ -2387,7 +2430,7 @@ del panel.
 | `GET /colaboraciones` | `{ id_colaboracion, descripcion }[]` |
 | `GET /coincidencia` | `{ id_coincidencia, nivel }[]` |
 | `GET /satisfaccion-formacion` | `{ id_satisfaccion, nivel: number }[]` |
-| `GET /discapacidad-dominios` | `{ id_dominio, clave, pregunta, orden }[]` |
+| `GET /discapacidad-dominios` | `{ id_dominio, clave, pregunta, orden }[]` — **solo los activos** (`activo = 1`; autocuidado no sale) |
 | `GET /grados-dificultad` | `{ id_grado, clave, descripcion, orden }[]` |
 | `GET /respuestas-autoadscripcion` | `{ id_respuesta, clave, descripcion, orden }[]` |
 | `GET /niveles-estudio` | `{ id_nivel_estudio, clave, descripcion, orden }[]` |

@@ -59,17 +59,26 @@ const LIMIT_DEFAULT = 50;
 // queda la suya y la del eliminado NO se mueve (muere con la cascada, pero
 // queda en el snapshot). Sin unicoPor, se mueven todas.
 //  · UNIQUE real en BD: egresado_identidad (uq_identidad_egresado) y
-//    egresado_discapacidad (uq_egresado_dominio).
+//    egresado_discapacidad (uq_egresado_dominio) y discapacidad_otro
+//    (uq_discapacidad_otro_egresado).
 //  · Unicidad LÓGICA sin índice en BD: autorizaciones es 1:1 con el egresado
 //    y se hace LEFT JOIN en todos los listados y estadísticas (una segunda
 //    fila duplicaría al egresado en todos lados). egresado_habilidades y
 //    egresado_colaboraciones son relaciones con catálogo: repetir el mismo
 //    par inflaría los totales de vinculación.
+//
+// soloSiConservadoNoConsintio: la tabla es una respuesta COMPLETA de la
+// persona, no una suma de filas sueltas. Desde la migración 015,
+// egresado_discapacidad guarda solo los dominios marcados: si el conservado
+// consintió, su respuesta (aunque no tenga filas = "sin dificultades") gana
+// entera y no se le mezclan dominios del eliminado. Antes eso pasaba solo,
+// porque quien consentía tenía siempre las seis filas.
 // ─────────────────────────────────────────────────────────────────────────────
 interface TablaHija {
   tabla: string;
   columna: string;
   unicoPor?: string[];
+  soloSiConservadoNoConsintio?: boolean;
 }
 
 export const TABLAS_HIJAS: readonly TablaHija[] = [
@@ -77,7 +86,8 @@ export const TABLAS_HIJAS: readonly TablaHija[] = [
   { tabla: 'certificaciones', columna: 'id_egresado' },
   { tabla: 'colaboracion_otro', columna: 'id_egresado' },
   { tabla: 'egresado_colaboraciones', columna: 'id_egresado', unicoPor: ['id_egresado', 'id_colaboracion'] },
-  { tabla: 'egresado_discapacidad', columna: 'id_egresado', unicoPor: ['id_egresado', 'id_dominio'] },
+  { tabla: 'discapacidad_otro', columna: 'id_egresado', unicoPor: ['id_egresado'], soloSiConservadoNoConsintio: true },
+  { tabla: 'egresado_discapacidad', columna: 'id_egresado', unicoPor: ['id_egresado', 'id_dominio'], soloSiConservadoNoConsintio: true },
   { tabla: 'egresado_emprendimientos', columna: 'id_egresado' },
   { tabla: 'egresado_estudios', columna: 'id_egresado' },
   { tabla: 'egresado_habilidades', columna: 'id_egresado', unicoPor: ['id_egresado', 'id_habilidad'] },
@@ -88,7 +98,7 @@ export const TABLAS_HIJAS: readonly TablaHija[] = [
 ];
 
 // Tablas con datos sensibles: solo existen con consentimiento expreso.
-const TABLAS_SENSIBLES = ['egresado_identidad', 'egresado_discapacidad'];
+const TABLAS_SENSIBLES = ['egresado_identidad', 'egresado_discapacidad', 'discapacidad_otro'];
 
 // Columnas de PERMISO de autorizaciones (TINYINT(1)). Al fusionar gana la
 // respuesta MÁS RESTRICTIVA; ver combinarAutorizaciones.
@@ -826,7 +836,9 @@ export class DuplicadosService {
     const hijosNoMovidos: Record<string, number> = {};
     for (const t of TABLAS_HIJAS) {
       let res: any;
-      if (!t.unicoPor) {
+      if (t.soloSiConservadoNoConsintio && Number(conservado.consintio_datos_sensibles) === 1) {
+        res = { affectedRows: 0 };
+      } else if (!t.unicoPor) {
         res = await qr.query(
           `UPDATE ${t.tabla} SET ${t.columna} = ? WHERE ${t.columna} = ?`,
           [idConservado, idEliminado],

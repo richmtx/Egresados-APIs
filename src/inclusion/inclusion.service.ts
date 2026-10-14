@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { VARIANTES_MEXICO_SQL } from '../common/constants/pais-nacimiento';
+import { GRADOS_DISCAPACIDAD_VALIDOS_SQL } from '../common/constants/discapacidad';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REPORTES DE INCLUSIÓN — datos personales SENSIBLES (LFPDPPP)
@@ -20,6 +21,12 @@ import { VARIANTES_MEXICO_SQL } from '../common/constants/pais-nacimiento';
 //    que no se puedan combinar filtros y deducir casos individuales.
 //  · Solo cuentan egresados con consintio_datos_sensibles = 1, aunque por
 //    alguna falla existieran filas de personas que no consintieron.
+//  · Discapacidad (migración 015): egresado_discapacidad guarda SOLO los
+//    dominios marcados. Quien consintió y no marcó nada no tiene filas y es
+//    un dato válido ("sin dificultades"). Por eso el DENOMINADOR de todo
+//    porcentaje es consintio_datos_sensibles = 1, nunca "tiene filas".
+//    Los dominios se filtran por discapacidad_dominios.activo (no por clave):
+//    si reactivan autocuidado, vuelve a salir solo.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Constante del servicio, NO viene de ninguna entrada del usuario.
@@ -41,15 +48,29 @@ const celdaConUmbral = (expresionConteo: string) =>
 // Conteo condicional con umbral, aplicado en SQL.
 const cuentaConUmbral = (cond: string) => celdaConUmbral(cuenta(cond));
 
+// Porcentaje con un decimal sobre una base exacta. Se calcula en JS a partir
+// de un conteo YA censurado por el SQL: si el conteo salió null, el
+// porcentaje también (no se puede deducir lo oculto).
+const pct = (total: number | null, base: number): number | null =>
+  total === null ? null : base > 0 ? Math.round((total * 1000) / base) / 10 : 0;
+
+// mysql2 entrega COUNT() como string; null (oculto por umbral) se conserva.
+const numONull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+
 // ── Condiciones por persona (alias `e` = egresados). Todas exigen consentimiento.
+// Población con discapacidad: al menos un dominio ACTIVO marcado con un grado
+// cuenta_discapacidad = 1 (mucha_dificultad, no_puedo). La opción "Otra" no
+// tiene grado, así que por sí sola no cuenta.
 const ES_DISCAPACIDAD = `
   e.consintio_datos_sensibles = 1
   AND EXISTS (
     SELECT 1
     FROM egresado_discapacidad ed
-    JOIN grados_dificultad gd ON gd.id_grado = ed.id_grado
+    JOIN grados_dificultad gd     ON gd.id_grado   = ed.id_grado
+    JOIN discapacidad_dominios dd ON dd.id_dominio = ed.id_dominio
     WHERE ed.id_egresado = e.id_egresado
       AND gd.cuenta_discapacidad = 1
+      AND dd.activo = 1
   )`;
 
 const respuestaSi = (columna: 'id_indigena' | 'id_habla_lengua' | 'id_afromexicano') => `
@@ -167,19 +188,21 @@ export class InclusionService {
   }
 
   // 2. DISCAPACIDAD POR DOMINIO × GRADO
-  // Se parte de la rejilla completa dominio × grado (catálogos), de modo que
-  // todas las celdas aparecen y las ocultas salen como null.
+  // Rejilla dominios ACTIVOS × grados que el formulario puede guardar
+  // (poca_dificultad, mucha_dificultad, no_puedo). Todas las celdas aparecen;
+  // las ocultas salen como null. Como ya no hay filas de "sin dificultad",
+  // cada celda cuenta personas que marcaron ese dominio con ese grado, y los
+  // porcentajes son sobre `consintieron`, no sobre quienes tienen filas.
   async getDiscapacidadPorDominio() {
-    const filas: {
-      dominio: string; pregunta: string;
-      grado: string; descripcion: string; total: number | null;
-    }[] = await this.dataSource.query(`
-      SELECT
-        d.clave        AS dominio,
-        d.pregunta     AS pregunta,
-        g.clave        AS grado,
-        g.descripcion  AS descripcion,
-        ${celdaConUmbral('COUNT(ed.id_dominio)')} AS total
+    const [base] = await this.dataSource.query(`
+      SELECT ${cuenta('e.consintio_datos_sensibles = 1')} AS consintieron
+      FROM egresados e
+    `);
+    const consintieron = Number(base.consintieron);
+
+    // Solo filas de egresados que consintieron; mismo FROM para las dos
+    // consultas de abajo.
+    const rejilla = `
       FROM discapacidad_dominios d
       CROSS JOIN grados_dificultad g
       LEFT JOIN egresado_discapacidad ed
@@ -190,26 +213,77 @@ export class InclusionService {
               WHERE e.id_egresado = ed.id_egresado
                 AND e.consintio_datos_sensibles = 1
             )
+      WHERE d.activo = 1
+        AND g.clave IN ${GRADOS_DISCAPACIDAD_VALIDOS_SQL}`;
+
+    const celdas: {
+      dominio: string; pregunta: string;
+      grado: string; descripcion: string; total: string | null;
+    }[] = await this.dataSource.query(`
+      SELECT
+        d.clave        AS dominio,
+        d.pregunta     AS pregunta,
+        g.clave        AS grado,
+        g.descripcion  AS descripcion,
+        ${celdaConUmbral('COUNT(ed.id_dominio)')} AS total
+      ${rejilla}
       GROUP BY d.id_dominio, d.clave, d.pregunta, d.orden,
                g.id_grado, g.clave, g.descripcion, g.orden
       ORDER BY d.orden, g.orden
     `);
 
-    // Solo reagrupa filas ya censuradas por el SQL; no calcula nada.
+    // Personas que marcaron el dominio con cualquier grado. Va en su propia
+    // consulta con su propio umbral: no se puede sumar en JS a partir de
+    // celdas que pueden venir ocultas.
+    const totalesDominio: { dominio: string; total: string | null }[] = await this.dataSource.query(`
+      SELECT
+        d.clave AS dominio,
+        ${celdaConUmbral('COUNT(ed.id_dominio)')} AS total
+      ${rejilla}
+      GROUP BY d.id_dominio, d.clave
+    `);
+    const totalPorDominio = new Map(totalesDominio.map(t => [t.dominio, numONull(t.total)]));
+
+    // Solo reagrupa filas ya censuradas por el SQL.
     const porDominio = new Map<string, {
       dominio: string; pregunta: string;
-      grados: { grado: string; descripcion: string; total: number | null }[];
+      total: number | null; porcentaje: number | null;
+      grados: { grado: string; descripcion: string; total: number | null; porcentaje: number | null }[];
     }>();
-    for (const f of filas) {
+    for (const f of celdas) {
       if (!porDominio.has(f.dominio)) {
-        porDominio.set(f.dominio, { dominio: f.dominio, pregunta: f.pregunta, grados: [] });
+        const total = totalPorDominio.get(f.dominio) ?? null;
+        porDominio.set(f.dominio, {
+          dominio: f.dominio, pregunta: f.pregunta,
+          total, porcentaje: pct(total, consintieron), grados: [],
+        });
       }
+      const total = numONull(f.total);
       porDominio.get(f.dominio)!.grados.push({
-        grado: f.grado, descripcion: f.descripcion, total: f.total,
+        grado: f.grado, descripcion: f.descripcion,
+        total, porcentaje: pct(total, consintieron),
       });
     }
 
-    return this.envolver([...porDominio.values()]);
+    // Texto libre de "Otra". Mismo criterio que lengua_indigena: conteo
+    // global (sin cruzar con carrera ni año), sin umbral, cada texto con su
+    // conteo real. Nunca sale a quién pertenece.
+    const otros: { descripcion: string; total: string }[] = await this.dataSource.query(`
+      SELECT dot.descripcion AS descripcion, COUNT(*) AS total
+      FROM discapacidad_otro dot
+      JOIN egresados e
+        ON e.id_egresado = dot.id_egresado
+       AND e.consintio_datos_sensibles = 1
+      WHERE TRIM(dot.descripcion) <> ''
+      GROUP BY dot.descripcion
+      ORDER BY total DESC, descripcion ASC
+    `);
+
+    return {
+      ...this.envolver([...porDominio.values()]),
+      consintieron,
+      discapacidad_otro: otros.map(o => ({ descripcion: o.descripcion, total: Number(o.total) })),
+    };
   }
 
   // 3. POR CARRERA
@@ -352,6 +426,9 @@ export class InclusionService {
       const disc = await qr.query(
         `DELETE FROM egresado_discapacidad WHERE id_egresado = ?`, [id],
       );
+      const discOtro = await qr.query(
+        `DELETE FROM discapacidad_otro WHERE id_egresado = ?`, [id],
+      );
       const ident = await qr.query(
         `DELETE FROM egresado_identidad WHERE id_egresado = ?`, [id],
       );
@@ -364,7 +441,7 @@ export class InclusionService {
         );
       }
 
-      filasEliminadas = (disc?.affectedRows ?? 0) + (ident?.affectedRows ?? 0);
+      filasEliminadas = (disc?.affectedRows ?? 0) + (discOtro?.affectedRows ?? 0) + (ident?.affectedRows ?? 0);
       await qr.commitTransaction();
     } catch (err) {
       if (qr.isTransactionActive) await qr.rollbackTransaction();
