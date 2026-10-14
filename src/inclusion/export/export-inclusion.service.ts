@@ -17,6 +17,9 @@ const COLOR_ALT_ARG = 'FFFDF2F6';
 const PAGE_MAX_Y = 550;
 const MARGIN_X = 28;
 
+const NOTA_OTRA_EXPORT =
+  'Las descripciones escritas en "Otra" no se incluyen en este archivo. El detalle se consulta en la pantalla de Inclusión del sistema.';
+
 // Forma de GET /inclusion/discapacidad-por-dominio (InclusionService).
 interface DominioDiscapacidad {
   dominio: string;
@@ -57,6 +60,17 @@ export class ExportInclusionService {
     return d.grados.some(g => g.total === null)
       ? { total: null, porcentaje: null }
       : { total: d.total, porcentaje: d.porcentaje };
+  }
+
+  // Cuántos egresados escribieron en "Otra". discapacidad_otro tiene UNIQUE
+  // por egresado, así que la suma de los conteos por texto es de personas.
+  //
+  // Los TEXTOS no salen nunca en el PDF ni en el Excel: esos archivos salen
+  // del ITD (se imprimen, se reenvían) y una descripción libre sobre
+  // discapacidad con conteo 1 puede señalar a una persona. El detalle solo
+  // se ve en la pantalla de Inclusión (solo admin).
+  private totalDiscapacidadOtro(otros: { total: number }[]): number {
+    return otros.reduce((s, o) => s + o.total, 0);
   }
 
   // Conteo con su porcentaje para el PDF: "12 (4.5%)". Oculto → "—".
@@ -349,13 +363,12 @@ export class ExportInclusionService {
         colWidths, MARGIN_X, y, onNewPage, undefined, 30);
     }
 
-    const otrosDisc = discapacidad.discapacidad_otro;
-    if (otrosDisc.length > 0) {
-      y = this.pdfSection(doc, 'Discapacidad — Otra (texto libre)', y, onNewPage);
-      y = this.pdfTable(doc, ['Descripción', 'Total'],
-        otrosDisc.map(o => [o.descripcion, String(o.total)]),
-        [500, 150], MARGIN_X, y, onNewPage);
-    }
+    // "Otra": solo la cifra, nunca los textos (ver totalDiscapacidadOtro).
+    y = this.pdfSection(doc, 'Discapacidad — Otra', y, onNewPage);
+    y = this.pdfTable(doc, ['Indicador', 'Valor'], [
+      ['Egresados que escribieron en "Otra"', String(this.totalDiscapacidadOtro(discapacidad.discapacidad_otro))],
+    ], [500, 150], MARGIN_X, y, onNewPage);
+    y = this.pdfNota(doc, NOTA_OTRA_EXPORT, y, onNewPage);
 
     // 4) Identidad por pregunta
     const preguntas = identidad.datos as { pregunta: string; respuestas: { descripcion: string; total: number | null }[] }[];
@@ -461,11 +474,19 @@ export class ExportInclusionService {
         }), 5);
     }
 
-    const otrosDisc = discapacidad.discapacidad_otro;
-    if (otrosDisc.length > 0) {
-      const ws = addSheet('Discapacidad Otra', 2, 'Discapacidad — Otra (texto libre)');
-      ws.columns = [{ key: 'desc', width: 60 }, { key: 't', width: 14 }];
-      this.excelTable(ws, ['Descripción', 'Total'], otrosDisc.map(o => [o.descripcion, o.total]), 5);
+    // "Otra": solo la cifra, nunca los textos (ver totalDiscapacidadOtro).
+    {
+      const ws = addSheet('Discapacidad Otra', 2, 'Discapacidad — Otra');
+      ws.columns = [{ key: 'ind', width: 44 }, { key: 'val', width: 14 }];
+      const fin = this.excelTable(ws, ['Indicador', 'Valor'], [
+        ['Egresados que escribieron en "Otra"', this.totalDiscapacidadOtro(discapacidad.discapacidad_otro)],
+      ], 5);
+      ws.mergeCells(`A${fin + 1}:B${fin + 1}`);
+      const nota = ws.getCell(`A${fin + 1}`);
+      nota.value = NOTA_OTRA_EXPORT;
+      nota.font = { italic: true, size: 8.5, color: { argb: 'FF6B7280' } };
+      nota.alignment = { wrapText: true, vertical: 'top' };
+      ws.getRow(fin + 1).height = 30;
     }
 
     // 4) Identidad por pregunta + lenguas

@@ -1310,7 +1310,8 @@ dificultades"). Por eso:
 - `discapacidad_otro`: textos libres de la opción "Otra" (solo de quienes
   consintieron), agrupados con su conteo, de mayor a menor. Mismo criterio que
   `lengua_indigena`: conteo global, **sin umbral**, `total` number, nunca dice
-  de quién es.
+  de quién es. Solo en la pantalla: los exports no traen los textos (ver
+  "Exportar reporte de inclusión").
 
 ---
 
@@ -1452,6 +1453,13 @@ GET /inclusion/export/excel
 **Query:** ninguno
 
 **Respuesta:** `inclusion_<fecha>.pdf` / `inclusion_<fecha>.xlsx` — descarga directa.
+
+> **Los textos de "Otra" de discapacidad NO salen en los exports.** Estos
+> archivos salen del ITD (se imprimen, se reenvían), y una descripción libre
+> sobre discapacidad con conteo 1 puede señalar a una persona. El PDF y la
+> hoja `Discapacidad Otra` del Excel traen **una sola cifra** (egresados que
+> escribieron en "Otra") y una nota que remite a la pantalla. Los textos
+> solo se ven en `GET /inclusion/discapacidad-por-dominio` (`discapacidad_otro`).
 
 ---
 

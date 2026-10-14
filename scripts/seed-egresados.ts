@@ -17,6 +17,7 @@ import * as mysql from 'mysql2/promise';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { claveEmpresaSql, COLLATE_VARIANTE } from '../src/common/constants/normalizacion-empresa';
+import { GRADOS_DISCAPACIDAD_VALIDOS_SQL } from '../src/common/constants/discapacidad';
 
 const TOTAL_EGRESADOS = 800;
 
@@ -691,6 +692,24 @@ const MEDIO_OTRO_TEXTOS = [
   'Recomendación de un profesor',
 ];
 
+// Opción "Otra" de la pregunta de discapacidad (tabla discapacidad_otro).
+// Dificultades que los dominios del catálogo no cubren. Va a propósito en
+// ~3% de quienes consintieron (PROB_DISCAPACIDAD_OTRO), NO en el 30% que usan
+// habilidades_otro y colaboracion_otro.
+const DISCAPACIDAD_OTRO_TEXTOS = [
+  'Dislexia',
+  'Sensibilidad a la luz intensa',
+  'Dolor crónico de espalda',
+  'Ansiedad en espacios concurridos',
+  'Dificultad para escribir a mano por largo tiempo',
+];
+const PROB_DISCAPACIDAD_OTRO = 0.03;
+
+// Rango razonable de egresados con al menos una dificultad, sobre los que
+// consintieron. El reparto objetivo da ~12% (7% severo + 5% poca); la
+// verificación de integridad truena fuera de este rango.
+const RANGO_CON_DIFICULTAD: [number, number] = [0.05, 0.25];
+
 // ═══════════════════════════════════════════════════════════════════════
 // Catálogos (se cargan de la base — NUNCA se escriben ids a mano)
 // ═══════════════════════════════════════════════════════════════════════
@@ -728,7 +747,9 @@ async function cargarCatalogos(conn: mysql.Connection): Promise<Catalogos> {
   const nivelesInglesRows = await q('SELECT id_nivel, nivel FROM niveles_ingles ORDER BY id_nivel');
   const habilidadesRows = await q('SELECT id_habilidad, habilidad FROM habilidades ORDER BY id_habilidad');
   const colaboracionesRows = await q('SELECT id_colaboracion, descripcion FROM colaboraciones ORDER BY id_colaboracion');
-  const discapacidadRows = await q('SELECT id_dominio, clave FROM discapacidad_dominios ORDER BY orden');
+  // Solo dominios activos (migración 015): se filtra por la columna, no por
+  // clave, para que un dominio reactivado vuelva a sembrarse solo.
+  const discapacidadRows = await q('SELECT id_dominio, clave FROM discapacidad_dominios WHERE activo = 1 ORDER BY orden');
   const gradosRows = await q('SELECT id_grado, clave FROM grados_dificultad ORDER BY orden');
   const respuestasRows = await q('SELECT id_respuesta, clave FROM respuestas_autoadscripcion ORDER BY orden');
   const nivelesEstudioRows = await q('SELECT id_nivel_estudio, clave FROM niveles_estudio ORDER BY orden');
@@ -816,6 +837,7 @@ interface EgresadoGen {
   colaboracion_otro: string | null;
   certificaciones: string[];
   discapacidad: DiscapacidadGen[];
+  discapacidad_otro: string | null;
   identidad: IdentidadGen | null;
   estudios: EstudioGen[];
   emprendimientos: EmprendimientoGen[];
@@ -1055,38 +1077,35 @@ function generarRegistro(
   // ── Datos sensibles (Fase 3) ────────────────────────────────────────
   const consintio: 0 | 1 = rng.bool(0.60) ? 1 : 0;
   const discapacidad: DiscapacidadGen[] = [];
+  let discapacidad_otro: string | null = null;
   let identidad: IdentidadGen | null = null;
   let fecha_consentimiento_sensibles: Date | null = null;
 
   if (consintio === 1) {
     fecha_consentimiento_sensibles = fecha_registro;
 
-    const bucket = rng.pickWeighted<'severo' | 'poco' | 'no_declara' | 'base'>([
-      ['severo', 7], ['poco', 5], ['no_declara', 3], ['base', 85],
+    // Modelo de la migración 015: solo se guardan los dominios MARCADOS, con
+    // severidad real. 'base' (~88%) no genera ninguna fila: "sin
+    // dificultades" es no marcar nada, igual que en el formulario.
+    // sin_dificultad y no_declara ya no se escriben nunca.
+    const bucket = rng.pickWeighted<'severo' | 'poco' | 'base'>([
+      ['severo', 7], ['poco', 5], ['base', 88],
     ]);
-    const sinDificultad = catalogos.gradosDificultad.get('sin_dificultad')!;
     const pocaDificultad = catalogos.gradosDificultad.get('poca_dificultad')!;
     const muchaDificultad = catalogos.gradosDificultad.get('mucha_dificultad')!;
     const noPuedo = catalogos.gradosDificultad.get('no_puedo')!;
-    const noDeclaraGrado = catalogos.gradosDificultad.get('no_declara')!;
 
-    const dominiosMarcados = new Map<number, number>();
     if (bucket === 'severo') {
       const nDom = rng.int(1, 2);
       for (const d of rng.sample(catalogos.discapacidadDominios, nDom)) {
-        dominiosMarcados.set(d.id, rng.bool(0.5) ? muchaDificultad : noPuedo);
+        discapacidad.push({ id_dominio: d.id, id_grado: rng.bool(0.5) ? muchaDificultad : noPuedo });
       }
     } else if (bucket === 'poco') {
       const d = rng.pick(catalogos.discapacidadDominios);
-      dominiosMarcados.set(d.id, pocaDificultad);
-    } else if (bucket === 'no_declara') {
-      const d = rng.pick(catalogos.discapacidadDominios);
-      dominiosMarcados.set(d.id, noDeclaraGrado);
+      discapacidad.push({ id_dominio: d.id, id_grado: pocaDificultad });
     }
 
-    for (const dom of catalogos.discapacidadDominios) {
-      discapacidad.push({ id_dominio: dom.id, id_grado: dominiosMarcados.get(dom.id) ?? sinDificultad });
-    }
+    if (rng.bool(PROB_DISCAPACIDAD_OTRO)) discapacidad_otro = rng.pick(DISCAPACIDAD_OTRO_TEXTOS);
 
     const respSi = catalogos.respuestasAutoadscripcion.get('si')!;
     const respNo = catalogos.respuestasAutoadscripcion.get('no')!;
@@ -1159,7 +1178,7 @@ function generarRegistro(
     foto_url: null, registro_completo, fecha_registro, revisado, fecha_revision, revisado_por,
     consintio_datos_sensibles: consintio, fecha_consentimiento_sensibles,
     habilidades, habilidad_otro, colaboraciones, colaboracion_otro, certificaciones,
-    discapacidad, identidad, estudios, emprendimientos, proyectos_sociales,
+    discapacidad, discapacidad_otro, identidad, estudios, emprendimientos, proyectos_sociales,
     // autorizaciones se agregan aparte abajo (no forman parte de forzar())
     ...( { autorizaciones: { autorizo_estadisticas, autorizo_contacto, autorizo_eventos } } as any),
   } as any;
@@ -1314,6 +1333,7 @@ const TABLAS_HIJAS_EN_ORDEN = [
   'egresado_colaboraciones',
   'colaboracion_otro',
   'egresado_discapacidad',
+  'discapacidad_otro',
   'egresado_identidad',
   'egresado_estudios',
   'egresado_emprendimientos',
@@ -1325,7 +1345,31 @@ const TABLAS_HIJAS_EN_ORDEN = [
 const TABLAS_DESPUES_DE_EGRESADOS = ['empresas_candidatos', 'empresas'];
 const TODAS_LAS_TABLAS_A_RESETEAR = [...TABLAS_HIJAS_EN_ORDEN, 'egresados', ...TABLAS_DESPUES_DE_EGRESADOS];
 
-async function imprimirSimulacion(conn: mysql.Connection, registros: any[], parejas: ParejaDuplicado[]) {
+interface ResumenDiscapacidad {
+  consintieron: number;
+  conDificultad: number;   // al menos un dominio marcado
+  conDiscapacidad: number; // al menos un dominio en mucha_dificultad o no_puedo
+  filasPorGrado: { grado: string; filas: number; egresados: number }[];
+  conOtra: number;
+}
+
+function imprimirResumenDiscapacidad(r: ResumenDiscapacidad) {
+  const pct = (x: number) => (r.consintieron > 0 ? (100 * x / r.consintieron).toFixed(1) : '0.0');
+  const dentro = r.consintieron > 0
+    && r.conDificultad / r.consintieron >= RANGO_CON_DIFICULTAD[0]
+    && r.conDificultad / r.consintieron <= RANGO_CON_DIFICULTAD[1];
+  console.log(`\n── Discapacidad (% sobre los ${r.consintieron} que consintieron) ─────────`);
+  console.log(`Sin ninguna fila (sin dificultad): ${r.consintieron - r.conDificultad} (${pct(r.consintieron - r.conDificultad)}%)`);
+  console.log(`Con al menos una dificultad      : ${r.conDificultad} (${pct(r.conDificultad)}%) — rango aceptado ${100 * RANGO_CON_DIFICULTAD[0]}–${100 * RANGO_CON_DIFICULTAD[1]}%: ${dentro ? 'OK' : 'FUERA DE RANGO'}`);
+  console.log(`  de ellos con discapacidad      : ${r.conDiscapacidad} (${pct(r.conDiscapacidad)}%) — mucha_dificultad o no_puedo`);
+  console.log('Por grado (filas = dominios marcados; egresados = personas con al menos uno):');
+  for (const g of r.filasPorGrado) {
+    console.log(`  ${g.grado.padEnd(17)}: ${String(g.filas).padStart(3)} filas, ${String(g.egresados).padStart(3)} egresados`);
+  }
+  console.log(`Escribieron en "Otra"            : ${r.conOtra} (${pct(r.conOtra)}%)`);
+}
+
+async function imprimirSimulacion(conn: mysql.Connection, registros: any[], parejas: ParejaDuplicado[], catalogos: Catalogos) {
   const [[{ n }]] = (await conn.query('SELECT COUNT(*) AS n FROM egresados')) as any[];
 
   const completos = registros.filter((r) => r.registro_completo === 1).length;
@@ -1354,6 +1398,23 @@ async function imprimirSimulacion(conn: mysql.Connection, registros: any[], pare
   console.log(`Con estudio posterior            : ${conEstudio}`);
   console.log(`Con emprendimiento               : ${conEmprendimiento}`);
   console.log(`Con proyecto social               : ${conProyecto}`);
+
+  const conConsentimiento = registros.filter((r) => r.consintio_datos_sensibles === 1);
+  const muchaONoPuedo = new Set(['mucha_dificultad', 'no_puedo'].map((c) => catalogos.gradosDificultad.get(c)));
+  imprimirResumenDiscapacidad({
+    consintieron: conConsentimiento.length,
+    conDificultad: conConsentimiento.filter((r) => r.discapacidad.length > 0).length,
+    conDiscapacidad: conConsentimiento.filter((r) => r.discapacidad.some((d: DiscapacidadGen) => muchaONoPuedo.has(d.id_grado))).length,
+    filasPorGrado: ['poca_dificultad', 'mucha_dificultad', 'no_puedo'].map((grado) => {
+      const id = catalogos.gradosDificultad.get(grado);
+      return {
+        grado,
+        filas: registros.reduce((s, r) => s + r.discapacidad.filter((d: DiscapacidadGen) => d.id_grado === id).length, 0),
+        egresados: registros.filter((r) => r.discapacidad.some((d: DiscapacidadGen) => d.id_grado === id)).length,
+      };
+    }),
+    conOtra: registros.filter((r) => r.discapacidad_otro !== null).length,
+  });
 
   console.log('\n── Reparto de ciudades (objetivo 45 / 42 / 13) ────────────');
   imprimirRepartoCiudades('ciudad_residencia', repartoCiudades(registros.map((r) => r.ciudad_residencia)));
@@ -1487,6 +1548,9 @@ async function ejecutarSeed(conn: mysql.Connection, registros: any[], parejas: P
       for (const d of r.discapacidad) {
         await conn.query(`INSERT INTO egresado_discapacidad (id_egresado, id_dominio, id_grado) VALUES (?, ?, ?)`, [r.id_egresado, d.id_dominio, d.id_grado]);
       }
+      if (r.discapacidad_otro) {
+        await conn.query(`INSERT INTO discapacidad_otro (id_egresado, descripcion) VALUES (?, ?)`, [r.id_egresado, r.discapacidad_otro]);
+      }
       if (r.identidad) {
         const i = r.identidad;
         await conn.query(
@@ -1576,17 +1640,43 @@ async function verificarIntegridad(conn: mysql.Connection): Promise<void> {
     WHERE e.consintio_datos_sensibles = 0
       AND (
         EXISTS (SELECT 1 FROM egresado_discapacidad d WHERE d.id_egresado = e.id_egresado)
+        OR EXISTS (SELECT 1 FROM discapacidad_otro o WHERE o.id_egresado = e.id_egresado)
         OR EXISTS (SELECT 1 FROM egresado_identidad i WHERE i.id_egresado = e.id_egresado)
       )
   `);
-  if (sinConsentimientoConDatos > 0) fallos.push(`${sinConsentimientoConDatos} egresados sin consentimiento tienen filas en discapacidad/identidad.`);
+  if (Number(sinConsentimientoConDatos) > 0) fallos.push(`${sinConsentimientoConDatos} egresados sin consentimiento tienen filas en discapacidad/discapacidad_otro/identidad.`);
 
-  const [{ n: discapacidadIncompleta }] = await q(`
-    SELECT COUNT(*) AS n FROM (
-      SELECT id_egresado, COUNT(*) AS c FROM egresado_discapacidad GROUP BY id_egresado HAVING c <> 6
-    ) t
+  // ── Discapacidad, modelo de la migración 015: solo dominios marcados ──
+  // (sustituye al viejo chequeo de "exactamente 6 filas por egresado").
+  const [{ n: gradoRetirado }] = await q(`
+    SELECT COUNT(*) AS n FROM egresado_discapacidad ed
+    JOIN grados_dificultad g ON g.id_grado = ed.id_grado
+    WHERE g.clave NOT IN ${GRADOS_DISCAPACIDAD_VALIDOS_SQL}
   `);
-  if (discapacidadIncompleta > 0) fallos.push(`${discapacidadIncompleta} egresados con consentimiento no tienen exactamente 6 filas de discapacidad.`);
+  if (Number(gradoRetirado) > 0) fallos.push(`${gradoRetirado} filas de discapacidad con un grado que ya no se escribe (sin_dificultad, no_declara u otro fuera de ${GRADOS_DISCAPACIDAD_VALIDOS_SQL}).`);
+
+  const [{ n: dominioInactivo }] = await q(`
+    SELECT COUNT(*) AS n FROM egresado_discapacidad ed
+    JOIN discapacidad_dominios d ON d.id_dominio = ed.id_dominio
+    WHERE d.activo <> 1
+  `);
+  if (Number(dominioInactivo) > 0) fallos.push(`${dominioInactivo} filas de discapacidad de un dominio inactivo.`);
+
+  // Proporción sobre quienes consintieron (el mismo denominador que Inclusión).
+  const [prop] = await q(`
+    SELECT
+      SUM(e.consintio_datos_sensibles = 1) AS consintieron,
+      SUM(e.consintio_datos_sensibles = 1
+          AND EXISTS (SELECT 1 FROM egresado_discapacidad ed WHERE ed.id_egresado = e.id_egresado)) AS con_dificultad
+    FROM egresados e
+  `);
+  const fraccion = Number(prop.consintieron) > 0 ? Number(prop.con_dificultad) / Number(prop.consintieron) : 0;
+  if (fraccion < RANGO_CON_DIFICULTAD[0] || fraccion > RANGO_CON_DIFICULTAD[1]) {
+    fallos.push(
+      `Egresados con al menos una dificultad: ${(100 * fraccion).toFixed(1)}% de los que consintieron, ` +
+      `fuera del rango ${100 * RANGO_CON_DIFICULTAD[0]}%–${100 * RANGO_CON_DIFICULTAD[1]}%.`,
+    );
+  }
 
   const [{ n: generoInvalido }] = await q(`
     SELECT COUNT(*) AS n FROM egresados e
@@ -1658,6 +1748,32 @@ async function imprimirResumenFinal(conn: mysql.Connection) {
   console.log(`egresado_emprendimientos : ${emprendimientos}`);
   console.log(`egresado_proyectos_sociales : ${proyectos}`);
   console.log(`certificaciones          : ${certs}`);
+
+  const [disc] = await q(`
+    SELECT
+      SUM(e.consintio_datos_sensibles = 1) AS consintieron,
+      SUM(EXISTS (SELECT 1 FROM egresado_discapacidad ed WHERE ed.id_egresado = e.id_egresado)) AS con_dificultad,
+      SUM(EXISTS (SELECT 1 FROM egresado_discapacidad ed
+                  JOIN grados_dificultad g ON g.id_grado = ed.id_grado
+                  WHERE ed.id_egresado = e.id_egresado AND g.cuenta_discapacidad = 1)) AS con_discapacidad,
+      SUM(EXISTS (SELECT 1 FROM discapacidad_otro o WHERE o.id_egresado = e.id_egresado)) AS con_otra
+    FROM egresados e
+  `);
+  const porGrado = await q(`
+    SELECT g.clave AS grado, COUNT(ed.id_registro) AS filas, COUNT(DISTINCT ed.id_egresado) AS egresados
+    FROM grados_dificultad g
+    LEFT JOIN egresado_discapacidad ed ON ed.id_grado = g.id_grado
+    WHERE g.clave IN ${GRADOS_DISCAPACIDAD_VALIDOS_SQL}
+    GROUP BY g.id_grado, g.clave, g.orden
+    ORDER BY g.orden
+  `);
+  imprimirResumenDiscapacidad({
+    consintieron: Number(disc.consintieron),
+    conDificultad: Number(disc.con_dificultad),
+    conDiscapacidad: Number(disc.con_discapacidad),
+    filasPorGrado: porGrado.map((g) => ({ grado: g.grado, filas: Number(g.filas), egresados: Number(g.egresados) })),
+    conOtra: Number(disc.con_otra),
+  });
 
   console.log('\n── Reparto de ciudades (objetivo 45 / 42 / 13) ────────────');
   for (const columna of ['ciudad_residencia', 'ciudad_trabajo']) {
@@ -1764,7 +1880,7 @@ async function main() {
     const { registros, parejas } = construirDataset(catalogos);
 
     if (!confirmar) {
-      await imprimirSimulacion(conn, registros, parejas);
+      await imprimirSimulacion(conn, registros, parejas, catalogos);
       return;
     }
 
