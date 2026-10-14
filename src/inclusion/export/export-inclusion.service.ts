@@ -48,6 +48,17 @@ export class ExportInclusionService {
     return v === null || v === undefined ? '—' : Number(v);
   }
 
+  // Supresión complementaria del total "Personas que lo marcaron": si alguna
+  // celda de grado de la fila está oculta, el total (y su %) también se
+  // oculta, porque total − celdas visibles revelaría la celda oculta
+  // (p. ej. 7 − 0 − 6 = 1). El endpoint manda el total correcto; esto solo
+  // decide qué se imprime junto a las celdas. Misma regla que el panel.
+  private totalDominioVisible(d: DominioDiscapacidad): { total: number | null; porcentaje: number | null } {
+    return d.grados.some(g => g.total === null)
+      ? { total: null, porcentaje: null }
+      : { total: d.total, porcentaje: d.porcentaje };
+  }
+
   // Conteo con su porcentaje para el PDF: "12 (4.5%)". Oculto → "—".
   private valPct(total: number | null, porcentaje: number | null): string {
     return total === null ? '—' : `${total} (${porcentaje ?? 0}%)`;
@@ -331,7 +342,10 @@ export class ExportInclusionService {
       const headers = ['Dominio', 'Personas que lo marcaron', ...dominios[0].grados.map(g => g.descripcion)];
       const colWidths = [220, 140, ...dominios[0].grados.map(() => (780 - 360) / dominios[0].grados.length)];
       y = this.pdfTable(doc, headers,
-        dominios.map(d => [d.pregunta, this.valPct(d.total, d.porcentaje), ...d.grados.map(g => this.valPct(g.total, g.porcentaje))]),
+        dominios.map(d => {
+          const t = this.totalDominioVisible(d);
+          return [d.pregunta, this.valPct(t.total, t.porcentaje), ...d.grados.map(g => this.valPct(g.total, g.porcentaje))];
+        }),
         colWidths, MARGIN_X, y, onNewPage, undefined, 30);
     }
 
@@ -438,10 +452,13 @@ export class ExportInclusionService {
       ];
       this.excelTable(ws,
         ['Dominio', 'Personas que lo marcaron', '%', ...grados.flatMap(g => [g.descripcion, '%'])],
-        dominios.map(d => [
-          d.pregunta, this.valNum(d.total), this.valNum(d.porcentaje),
-          ...d.grados.flatMap(g => [this.valNum(g.total), this.valNum(g.porcentaje)]),
-        ]), 5);
+        dominios.map(d => {
+          const t = this.totalDominioVisible(d);
+          return [
+            d.pregunta, this.valNum(t.total), this.valNum(t.porcentaje),
+            ...d.grados.flatMap(g => [this.valNum(g.total), this.valNum(g.porcentaje)]),
+          ];
+        }), 5);
     }
 
     const otrosDisc = discapacidad.discapacidad_otro;
